@@ -62,93 +62,152 @@ class MusicUtils:
         )
         embed.set_footer(text=f"{Config.BOT_NAME} • {MusicUtils.get_random_banket_phrase()}")
         return embed
-    
+
+    @staticmethod
+    def create_music_buttons() -> discord.ui.View:
+        """Create Discord buttons for music controls"""
+        view = discord.ui.View(timeout=300)  # 5 minutes timeout
+        
+        # Play/Pause button
+        play_pause_button = discord.ui.Button(
+            style=discord.ButtonStyle.primary,
+            emoji="⏯️",
+            label="Play/Pause",
+            custom_id="music_play_pause"
+        )
+        
+        # Skip button
+        skip_button = discord.ui.Button(
+            style=discord.ButtonStyle.secondary,
+            emoji="⏭️",
+            label="Skip",
+            custom_id="music_skip"
+        )
+        
+        # Stop button
+        stop_button = discord.ui.Button(
+            style=discord.ButtonStyle.danger,
+            emoji="⏹️",
+            label="Stop",
+            custom_id="music_stop"
+        )
+        
+        # Queue button
+        queue_button = discord.ui.Button(
+            style=discord.ButtonStyle.secondary,
+            emoji="📋",
+            label="Queue",
+            custom_id="music_queue"
+        )
+        
+        # Shuffle button
+        shuffle_button = discord.ui.Button(
+            style=discord.ButtonStyle.secondary,
+            emoji="🔀",
+            label="Shuffle",
+            custom_id="music_shuffle"
+        )
+        
+        view.add_item(play_pause_button)
+        view.add_item(skip_button)
+        view.add_item(stop_button)
+        view.add_item(queue_button)
+        view.add_item(shuffle_button)
+        
+        return view
+
     @staticmethod
     def create_now_playing_embed(song_info: Dict[str, Any]) -> discord.Embed:
-        """Create a now playing embed"""
+        """Create a now playing embed with enhanced information"""
         embed = discord.Embed(
             title="🎵 Сега свири",
             description=f"**{song_info['title']}**",
-            color=Config.COLOR_PRIMARY
+            color=Config.COLOR_SUCCESS
         )
         
-        if song_info.get('duration'):
-            embed.add_field(
-                name="⏱️ Продължителност",
-                value=MusicUtils.format_duration(song_info['duration']),
-                inline=True
-            )
+        # Add song information
+        duration = MusicUtils.format_duration(song_info['duration']) if song_info.get('duration') else "Live"
+        embed.add_field(name="⏱️ Продължителност", value=duration, inline=True)
+        embed.add_field(name="👤 Канал", value=song_info.get('uploader', 'Unknown'), inline=True)
+        embed.add_field(name="🎧 Заявена от", value=song_info['requester'].mention, inline=True)
         
-        if song_info.get('uploader'):
-            embed.add_field(
-                name="👤 Канал",
-                value=song_info['uploader'],
-                inline=True
-            )
-        
-        if song_info.get('requester'):
-            embed.add_field(
-                name="🎯 Заявена от",
-                value=song_info['requester'].mention,
-                inline=True
-            )
-        
+        # Add thumbnail if available
         if song_info.get('thumbnail'):
             embed.set_thumbnail(url=song_info['thumbnail'])
         
-        embed.set_footer(text=f"{Config.BOT_NAME} • {MusicUtils.get_random_banket_phrase()}")
+        # Add progress bar (placeholder for now)
+        embed.add_field(name="⏳ Прогрес", value="▬▬▬▬▬▬▬▬▬▬ 0%", inline=False)
+        
+        embed.set_footer(text=f"{Config.BOT_NAME} • Банкет режим активен! 🎉")
         return embed
-    
+
     @staticmethod
-    def create_queue_embed(queue_list: list, current_song: Optional[Dict] = None) -> discord.Embed:
-        """Create a queue display embed"""
+    def create_queue_embed(queue_list: list, current_song: Optional[Dict] = None, page: int = 1, per_page: int = 10) -> discord.Embed:
+        """Create a queue display embed with pagination"""
         embed = discord.Embed(
             title="🎼 Опашка за музика",
             color=Config.COLOR_PRIMARY
         )
         
         if current_song:
+            duration = MusicUtils.format_duration(current_song['duration']) if current_song.get('duration') else "Live"
             embed.add_field(
                 name="🎵 Сега свири",
-                value=f"**{current_song['title']}**",
+                value=f"**{current_song['title']}** [{duration}]\n👤 {current_song.get('uploader', 'Unknown')}",
                 inline=False
             )
         
         if queue_list:
-            queue_text = ""
-            for i, song in enumerate(queue_list[:10], 1):  # Show first 10 songs
-                duration = MusicUtils.format_duration(song['duration']) if song.get('duration') else "N/A"
-                queue_text += f"`{i}.` **{song['title']}** [{duration}]\n"
+            total_pages = (len(queue_list) + per_page - 1) // per_page
+            start_idx = (page - 1) * per_page
+            end_idx = start_idx + per_page
+            page_queue = queue_list[start_idx:end_idx]
             
-            if len(queue_list) > 10:
-                queue_text += f"\n... и още {len(queue_list) - 10} песни"
+            queue_text = ""
+            for i, song in enumerate(page_queue, start_idx + 1):
+                duration = MusicUtils.format_duration(song['duration']) if song.get('duration') else "Live"
+                queue_text += f"`{i}.` **{song['title']}** [{duration}]\n"
+                queue_text += f"    👤 {song.get('uploader', 'Unknown')} • 🎧 {song['requester'].display_name}\n"
             
             embed.add_field(
-                name="📋 Следващи песни",
+                name=f"📋 Следващи песни (Страница {page}/{total_pages})",
                 value=queue_text,
                 inline=False
+            )
+            
+            # Add queue statistics
+            total_duration = sum(song.get('duration', 0) for song in queue_list)
+            embed.add_field(
+                name="📊 Статистики",
+                value=f"🎵 Общо песни: {len(queue_list)}\n⏱️ Общо време: {MusicUtils.format_duration(total_duration)}",
+                inline=True
             )
         else:
             embed.add_field(
                 name="📋 Следващи песни",
-                value="Няма песни в опашката",
+                value="Няма песни в опашката\nИзползвайте `!play <песен>` за да добавите песен",
                 inline=False
             )
         
-        embed.set_footer(text=f"{Config.BOT_NAME} • Общо: {len(queue_list)} песни")
+        embed.set_footer(text=f"{Config.BOT_NAME} • Използвайте бутоните за контрол")
         return embed
 
 class YouTubeDownloader:
     """YouTube downloader utility class"""
     
     def __init__(self):
-        # Browser user agents for better compatibility
+        # Browser user agents for better compatibility - updated with more recent versions
         self.user_agents = [
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0',
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Edg/121.0.0.0',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
         ]
+        
+        # Rotate user agent for each instance
+        import random
+        self.current_user_agent = random.choice(self.user_agents)
         
         self.ytdl_format_options = {
             'format': 'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best',
@@ -169,6 +228,24 @@ class YouTubeDownloader:
             'playlistend': 50,  # Limit playlist to first 50 songs
             'prefer_ffmpeg': False,  # Disable FFmpeg preference
             'postprocessors': [],  # No post-processing
+            # Enhanced headers to avoid bot detection
+            'http_headers': {
+                'User-Agent': self.current_user_agent,
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                'Accept-Language': 'en-US,en;q=0.9',
+                'Accept-Encoding': 'gzip, deflate, br, zstd',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Sec-Fetch-User': '?1',
+                'Cache-Control': 'max-age=0',
+                'sec-ch-ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
+                'sec-ch-ua-mobile': '?0',
+                'sec-ch-ua-platform': '"Windows"',
+            },
             # Additional options for youtube-dl
             'socket_timeout': 30,
             'retries': 3,
@@ -186,8 +263,8 @@ class YouTubeDownloader:
             'call_home': False,
             'sleep_interval': 0,
             'max_sleep_interval': 0,
-            'sleep_interval_requests': 0,
-            'sleep_interval_subtitles': 0,
+            'sleep_interval_requests': 1,  # Add delay between requests
+            'sleep_interval_subtitles': 1,
         }
         
         self.ffmpeg_options = {
@@ -326,6 +403,18 @@ class YouTubeDownloader:
                     # Try to understand why all entries are None
                     none_count = sum(1 for entry in info['entries'] if entry is None)
                     print(f"Found {none_count} None entries out of {len(info['entries'])} total entries")
+                    
+                    # Check if this might be due to bot detection
+                    if none_count == len(info['entries']):
+                        print("All entries are None - likely bot detection. Trying fallback search...")
+                        fallback_result = await self.fallback_search(query)
+                        if fallback_result:
+                            print("Fallback search succeeded!")
+                            return fallback_result
+                        else:
+                            # If fallback also fails, it's likely bot detection
+                            raise Exception("YouTube is blocking requests due to bot detection. Try using a different search term or wait a few minutes before trying again.")
+                    
                     return None
                 
                 result = valid_entries[0]
@@ -363,7 +452,7 @@ class YouTubeDownloader:
             
             # Handle specific YouTube errors
             if "Sign in to confirm" in error_msg or "bot" in error_msg.lower():
-                raise Exception("YouTube is blocking this request. The video may be age-restricted or require authentication.")
+                raise Exception("YouTube is blocking this request due to bot detection. Try using a different search term, wait a few minutes, or try a more specific query.")
             elif "Private video" in error_msg:
                 raise Exception("This video is private and cannot be played.")
             elif "Video unavailable" in error_msg:
@@ -387,48 +476,30 @@ class YouTubeDownloader:
         return any(indicator in query.lower() for indicator in url_indicators)
     
     async def fallback_search(self, query: str) -> Optional[Dict[str, Any]]:
-        """Enhanced fallback search method with multiple strategies"""
+        """Enhanced fallback search method with multiple strategies to avoid bot detection"""
         print(f"Trying fallback search for: {query}")
         
-        # Try multiple fallback strategies
+        # Try multiple fallback strategies with different approaches
         fallback_strategies = [
             {
-                'name': 'Minimal extraction',
+                'name': 'Mobile user agent',
                 'options': {
                     'format': 'bestaudio/best',
                     'quiet': True,
                     'no_warnings': True,
                     'default_search': 'ytsearch',
                     'ignoreerrors': True,
-                    'extractflat': True,
+                    'sleep_interval_requests': 2,
                     'http_headers': {
-                        'User-Agent': self.user_agents[0],
+                        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
                         'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                        'Accept-Language': 'en-US,en;q=0.9',
+                        'Accept-Language': 'en-US,en;q=0.5',
+                        'Accept-Encoding': 'gzip, deflate',
                     }
                 }
             },
             {
-                'name': 'Android client',
-                'options': {
-                    'format': 'bestaudio/best',
-                    'quiet': True,
-                    'no_warnings': True,
-                    'default_search': 'ytsearch',
-                    'ignoreerrors': True,
-                    'http_headers': {
-                        'User-Agent': 'com.google.android.youtube/17.36.4 (Linux; U; Android 12; GB) gzip',
-                        'Accept': '*/*',
-                    },
-                    'extractor_args': {
-                        'youtube': {
-                            'player_client': ['android'],
-                        }
-                    }
-                }
-            },
-            {
-                'name': 'Basic search',
+                'name': 'Minimal extraction with delays',
                 'options': {
                     'format': 'worst',
                     'quiet': True,
@@ -436,8 +507,49 @@ class YouTubeDownloader:
                     'default_search': 'ytsearch',
                     'ignoreerrors': True,
                     'extractflat': True,
+                    'sleep_interval_requests': 3,
                     'http_headers': {
                         'User-Agent': self.user_agents[1],
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                        'Accept-Language': 'en-US,en;q=0.9',
+                    }
+                }
+            },
+            {
+                'name': 'Firefox with extended headers',
+                'options': {
+                    'format': 'bestaudio/best',
+                    'quiet': True,
+                    'no_warnings': True,
+                    'default_search': 'ytsearch',
+                    'ignoreerrors': True,
+                    'sleep_interval_requests': 1,
+                    'http_headers': {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0',
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                        'Accept-Language': 'en-US,en;q=0.5',
+                        'Accept-Encoding': 'gzip, deflate, br',
+                        'Connection': 'keep-alive',
+                        'Upgrade-Insecure-Requests': '1',
+                        'Sec-Fetch-Dest': 'document',
+                        'Sec-Fetch-Mode': 'navigate',
+                        'Sec-Fetch-Site': 'none',
+                        'Sec-Fetch-User': '?1',
+                    }
+                }
+            },
+            {
+                'name': 'Generic search with minimal footprint',
+                'options': {
+                    'format': 'bestaudio',
+                    'quiet': True,
+                    'no_warnings': True,
+                    'default_search': 'ytsearch1',  # Search for only 1 result
+                    'ignoreerrors': True,
+                    'extractflat': True,
+                    'sleep_interval_requests': 4,
+                    'http_headers': {
+                        'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
                         'Accept': '*/*',
                     }
                 }
@@ -446,9 +558,15 @@ class YouTubeDownloader:
         
         loop = asyncio.get_event_loop()
         
-        for strategy in fallback_strategies:
+        for i, strategy in enumerate(fallback_strategies):
             try:
-                print(f"Trying fallback strategy: {strategy['name']}")
+                print(f"Trying fallback strategy {i+1}/4: {strategy['name']}")
+                
+                # Add progressive delay between strategies
+                if i > 0:
+                    delay = 3 + (i * 2)  # 3, 5, 7, 9 seconds
+                    print(f"Waiting {delay} seconds before next strategy...")
+                    await asyncio.sleep(delay)
                 
                 fallback_ytdl = youtube_dl.YoutubeDL(strategy['options'])
                 
@@ -481,9 +599,6 @@ class YouTubeDownloader:
                         print(f"Fallback strategy '{strategy['name']}' returned no valid entries")
                 else:
                     print(f"Fallback strategy '{strategy['name']}' returned no info or entries")
-                
-                # Wait between strategies
-                await asyncio.sleep(1)
                 
             except Exception as e:
                 print(f"Fallback strategy '{strategy['name']}' failed: {e}")

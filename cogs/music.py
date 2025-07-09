@@ -8,6 +8,7 @@ from config import Config
 from utils.music_utils import MusicUtils, YouTubeDownloader
 from utils.cleanup import CleanupManager
 from utils.alternative_player import SimpleAudioPlayer
+from utils.button_handler import MusicButtonHandler
 
 class MusicPlayer:
     """Music player class to handle queue and playback"""
@@ -167,6 +168,54 @@ class MusicPlayer:
             self.queue = deque(queue_list)
             return True
         return False
+    
+    def set_volume(self, volume: float) -> bool:
+        """Set the volume (0.0 to 1.0)"""
+        if 0.0 <= volume <= 1.0:
+            self.volume = volume
+            # Apply volume to current audio source if playing
+            if self.voice_client and self.voice_client.source:
+                if hasattr(self.voice_client.source, 'volume'):
+                    self.voice_client.source.volume = volume
+            return True
+        return False
+    
+    def get_volume(self) -> float:
+        """Get the current volume"""
+        return self.volume
+    
+    def remove_from_queue(self, index: int) -> bool:
+        """Remove a song from the queue by index (1-based)"""
+        if 1 <= index <= len(self.queue):
+            queue_list = list(self.queue)
+            removed_song = queue_list.pop(index - 1)
+            self.queue = deque(queue_list)
+            return True
+        return False
+    
+    def move_in_queue(self, from_index: int, to_index: int) -> bool:
+        """Move a song from one position to another in the queue"""
+        if (1 <= from_index <= len(self.queue)) and (1 <= to_index <= len(self.queue)):
+            queue_list = list(self.queue)
+            song = queue_list.pop(from_index - 1)
+            queue_list.insert(to_index - 1, song)
+            self.queue = deque(queue_list)
+            return True
+        return False
+    
+    def get_queue_info(self) -> Dict[str, Any]:
+        """Get comprehensive queue information"""
+        total_duration = sum(song.get('duration', 0) for song in self.queue)
+        return {
+            'total_songs': len(self.queue),
+            'total_duration': total_duration,
+            'current_song': self.current_song,
+            'is_playing': self.is_playing,
+            'is_paused': self.is_paused,
+            'repeat_mode': self.repeat_mode,
+            'shuffle_mode': self.shuffle_mode,
+            'volume': self.volume
+        }
 
 class Music(commands.Cog):
     """Advanced Music Cog for Banketnika Bot"""
@@ -363,7 +412,8 @@ class Music(commands.Cog):
         player = self.get_player(ctx.guild.id)
         
         embed = MusicUtils.create_queue_embed(list(player.queue), player.current_song)
-        await ctx.send(embed=embed)
+        view = MusicButtonHandler(self.bot)
+        await ctx.send(embed=embed, view=view)
     
     @commands.command(name='nowplaying', aliases=['np', 'сега'])
     async def nowplaying(self, ctx):
@@ -380,6 +430,135 @@ class Music(commands.Cog):
             return
         
         embed = MusicUtils.create_now_playing_embed(player.current_song)
+        view = MusicButtonHandler(self.bot)
+        await ctx.send(embed=embed, view=view)
+    
+    @commands.command(name='remove', aliases=['rem', 'премахни'])
+    async def remove(self, ctx, index: int):
+        """Remove a song from the queue by position"""
+        player = self.get_player(ctx.guild.id)
+        
+        if not player.queue:
+            embed = MusicUtils.create_music_embed(
+                "❌ Празна опашка",
+                "Няма песни в опашката",
+                Config.COLOR_ERROR
+            )
+            await ctx.send(embed=embed)
+            return
+        
+        if player.remove_from_queue(index):
+            embed = MusicUtils.create_music_embed(
+                "✅ Премахната",
+                f"Песента на позиция {index} беше премахната от опашката",
+                Config.COLOR_SUCCESS
+            )
+        else:
+            embed = MusicUtils.create_music_embed(
+                "❌ Невалидна позиция",
+                f"Няма песен на позиция {index}. Опашката има {len(player.queue)} песни.",
+                Config.COLOR_ERROR
+            )
+        
+        await ctx.send(embed=embed)
+    
+    @commands.command(name='move', aliases=['mv', 'премести'])
+    async def move(self, ctx, from_pos: int, to_pos: int):
+        """Move a song from one position to another in the queue"""
+        player = self.get_player(ctx.guild.id)
+        
+        if not player.queue:
+            embed = MusicUtils.create_music_embed(
+                "❌ Празна опашка",
+                "Няма песни в опашката",
+                Config.COLOR_ERROR
+            )
+            await ctx.send(embed=embed)
+            return
+        
+        if player.move_in_queue(from_pos, to_pos):
+            embed = MusicUtils.create_music_embed(
+                "✅ Преместена",
+                f"Песента беше преместена от позиция {from_pos} на позиция {to_pos}",
+                Config.COLOR_SUCCESS
+            )
+        else:
+            embed = MusicUtils.create_music_embed(
+                "❌ Невалидни позиции",
+                f"Невалидни позиции. Опашката има {len(player.queue)} песни.",
+                Config.COLOR_ERROR
+            )
+        
+        await ctx.send(embed=embed)
+    
+    @commands.command(name='queueinfo', aliases=['qi', 'инфо'])
+    async def queueinfo(self, ctx):
+        """Show detailed queue information"""
+        player = self.get_player(ctx.guild.id)
+        queue_info = player.get_queue_info()
+        
+        embed = discord.Embed(
+            title="📊 Информация за опашката",
+            color=Config.COLOR_PRIMARY
+        )
+        
+        # Basic info
+        embed.add_field(
+            name="🎵 Песни в опашката",
+            value=str(queue_info['total_songs']),
+            inline=True
+        )
+        
+        embed.add_field(
+            name="⏱️ Общо време",
+            value=MusicUtils.format_duration(queue_info['total_duration']),
+            inline=True
+        )
+        
+        embed.add_field(
+            name="🔊 Сила на звука",
+            value=f"{int(queue_info['volume'] * 100)}%",
+            inline=True
+        )
+        
+        # Status
+        status_text = ""
+        if queue_info['is_playing']:
+            status_text += "▶️ Свири"
+        elif queue_info['is_paused']:
+            status_text += "⏸️ Пауза"
+        else:
+            status_text += "⏹️ Спряна"
+        
+        embed.add_field(
+            name="📱 Статус",
+            value=status_text,
+            inline=True
+        )
+        
+        # Modes
+        modes = []
+        if queue_info['repeat_mode']:
+            modes.append("🔁 Повторение")
+        if queue_info['shuffle_mode']:
+            modes.append("🔀 Разбъркване")
+        
+        embed.add_field(
+            name="⚙️ Режими",
+            value=" | ".join(modes) if modes else "Няма активни режими",
+            inline=True
+        )
+        
+        # Current song
+        if queue_info['current_song']:
+            current = queue_info['current_song']
+            embed.add_field(
+                name="🎵 Текуща песен",
+                value=f"**{current['title']}**\n👤 {current.get('uploader', 'Unknown')}",
+                inline=False
+            )
+        
+        embed.set_footer(text=f"{Config.BOT_NAME} • Банкет статистики")
         await ctx.send(embed=embed)
     
     @commands.command(name='shuffle', aliases=['разбъркай'])
@@ -419,6 +598,59 @@ class Music(commands.Cog):
                 "🗑️ Изчистена",
                 "Опашката беше изчистена",
                 Config.COLOR_SUCCESS
+            )
+        
+        await ctx.send(embed=embed)
+    
+    @commands.command(name='volume', aliases=['vol', 'сила'])
+    async def volume(self, ctx, volume: Optional[int] = None):
+        """Set or show the volume (0-100)"""
+        player = self.get_player(ctx.guild.id)
+        
+        if volume is None:
+            # Show current volume
+            current_volume = int(player.get_volume() * 100)
+            embed = MusicUtils.create_music_embed(
+                "🔊 Сила на звука",
+                f"Текущата сила на звука е: **{current_volume}%**",
+                Config.COLOR_PRIMARY
+            )
+            await ctx.send(embed=embed)
+            return
+        
+        # Set volume
+        if not (0 <= volume <= 100):
+            embed = MusicUtils.create_music_embed(
+                "❌ Невалидна стойност",
+                "Силата на звука трябва да е между 0 и 100",
+                Config.COLOR_ERROR
+            )
+            await ctx.send(embed=embed)
+            return
+        
+        # Check maximum volume limit
+        max_volume = getattr(Config, 'MAX_VOLUME', 100)
+        if volume > max_volume:
+            embed = MusicUtils.create_music_embed(
+                "❌ Твърде високо",
+                f"Максималната сила на звука е {max_volume}%",
+                Config.COLOR_ERROR
+            )
+            await ctx.send(embed=embed)
+            return
+        
+        volume_float = volume / 100.0
+        if player.set_volume(volume_float):
+            embed = MusicUtils.create_music_embed(
+                "🔊 Сила на звука променена",
+                f"Силата на звука е сега **{volume}%**",
+                Config.COLOR_SUCCESS
+            )
+        else:
+            embed = MusicUtils.create_music_embed(
+                "❌ Грешка",
+                "Не мога да променя силата на звука",
+                Config.COLOR_ERROR
             )
         
         await ctx.send(embed=embed)
@@ -585,7 +817,8 @@ class Music(commands.Cog):
                 if player.is_playing:
                     print("Playback started, updating message with now playing")  # Debug logging
                     embed = MusicUtils.create_now_playing_embed(song_data)
-                    await search_msg.edit(embed=embed)
+                    view = MusicButtonHandler(self.bot)
+                    await search_msg.edit(embed=embed, view=view)
                 else:
                     print("Playback failed to start")  # Debug logging
                     embed = MusicUtils.create_music_embed(

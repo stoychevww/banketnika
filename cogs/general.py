@@ -53,6 +53,10 @@ class General(commands.Cog):
                 f"`{Config.BOT_PREFIX}shuffle` - Разбъркай опашката",
                 f"`{Config.BOT_PREFIX}clear` - Изчисти опашката",
                 f"`{Config.BOT_PREFIX}repeat` - Повтори песента",
+                f"`{Config.BOT_PREFIX}volume [0-100]` - Промени силата на звука",
+                f"`{Config.BOT_PREFIX}remove <позиция>` - Премахни песен от опашката",
+                f"`{Config.BOT_PREFIX}move <от> <до>` - Премести песен в опашката",
+                f"`{Config.BOT_PREFIX}queueinfo` - Подробна информация за опашката",
                 f"`{Config.BOT_PREFIX}disconnect` - Напусни канала"
             ]
             

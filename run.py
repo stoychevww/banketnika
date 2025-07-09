@@ -22,7 +22,7 @@ def check_dependencies():
     """Check if all required dependencies are installed"""
     try:
         import discord
-        import yt_dlp
+        import youtube_dl
         import dotenv
         import aiohttp
         print("✅ All dependencies are installed!")

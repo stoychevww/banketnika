@@ -11,12 +11,13 @@ class Config:
     BOT_TOKEN = os.getenv('BOT_TOKEN')
     BOT_PREFIX = os.getenv('BOT_PREFIX', '!')
     
-    # Music Configuration
-    MAX_QUEUE_SIZE = int(os.getenv('MAX_QUEUE_SIZE', '100'))
-    MAX_SONG_LENGTH = int(os.getenv('MAX_SONG_LENGTH', '600'))  # 10 minutes
-    DEFAULT_VOLUME = float(os.getenv('DEFAULT_VOLUME', '0.5'))
+    # Music settings
+    MAX_QUEUE_SIZE = 100
+    MAX_SONG_LENGTH = 3600  # 1 hour in seconds
+    DEFAULT_VOLUME = 0.5  # 50%
+    MAX_VOLUME = 100  # Maximum volume percentage
     
-    # Bot Settings
+    # Bot settings
     BOT_NAME = "Banketnika"
     BOT_DESCRIPTION = "Advanced Bulgarian Music Bot for Discord - Bringing the banket spirit to your server!"
     BOT_VERSION = "1.0.0"
