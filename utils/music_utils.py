@@ -169,7 +169,7 @@ class YouTubeDownloader:
             'playlistend': 50,  # Limit playlist to first 50 songs
             'prefer_ffmpeg': False,  # Disable FFmpeg preference
             'postprocessors': [],  # No post-processing
-            # Enhanced headers to bypass JSON parsing errors
+            # Enhanced headers to bypass player response errors
             'http_headers': {
                 'User-Agent': self.user_agents[0],
                 'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
@@ -183,15 +183,24 @@ class YouTubeDownloader:
                 'Sec-Fetch-Site': 'none',
                 'Sec-Fetch-User': '?1',
                 'Cache-Control': 'max-age=0',
+                'Referer': 'https://www.youtube.com/',
             },
-            # Additional YouTube-specific options to handle JSON errors
+            # Enhanced YouTube-specific options to handle player response errors
             'extractor_args': {
                 'youtube': {
                     'skip': ['hls', 'dash'],
                     'player_skip': ['configs'],
-                    'player_client': ['web', 'android', 'ios'],
+                    'player_client': ['web', 'android', 'ios', 'mweb'],
+                    'innertube_host': 'www.youtube.com',
+                    'innertube_key': None,  # Let yt-dlp auto-detect
+                    'check_formats': 'selected',
                 }
             },
+            # Additional options to handle player response failures
+            'socket_timeout': 30,
+            'retries': 3,
+            'fragment_retries': 3,
+            'skip_unavailable_fragments': True,
         }
         
         self.ffmpeg_options = {
@@ -212,42 +221,16 @@ class YouTubeDownloader:
         print("⚠️  Skipping browser cookies due to compatibility issues")
         print("Using advanced header-based approach for YouTube access")
         
-        # Remove any cookie settings
-        self.ytdl_format_options.pop('cookiesfrombrowser', None)
-        
-        # Enhanced headers that mimic a real browser session
-        self.ytdl_format_options['http_headers'].update({
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'DNT': '1',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
-            'Sec-Fetch-Dest': 'document',
-            'Sec-Fetch-Mode': 'navigate',
-            'Sec-Fetch-Site': 'none',
-            'Sec-Fetch-User': '?1',
-            'Cache-Control': 'max-age=0',
-            'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
-            'sec-ch-ua-mobile': '?0',
-            'sec-ch-ua-platform': '"Windows"',
+        # Update the ytdl instance with enhanced options
+        self.ytdl.params.update({
+            'http_headers': self.ytdl_format_options['http_headers'],
+            'extractor_args': self.ytdl_format_options['extractor_args'],
+            'socket_timeout': self.ytdl_format_options['socket_timeout'],
+            'retries': self.ytdl_format_options['retries'],
+            'fragment_retries': self.ytdl_format_options['fragment_retries'],
+            'skip_unavailable_fragments': self.ytdl_format_options['skip_unavailable_fragments'],
         })
         
-        # Advanced YouTube-specific workarounds
-        self.ytdl_format_options['extractor_args']['youtube'].update({
-            'player_client': ['web', 'android', 'ios'],
-            'skip': ['hls', 'dash'],
-            'player_skip': ['configs'],
-        })
-        
-        # Additional anti-detection measures
-        self.ytdl_format_options.update({
-            'sleep_interval': 1,  # Add delays between requests
-            'max_sleep_interval': 3,
-            'sleep_interval_subtitles': 1,
-        })
-        
-        self.ytdl = yt_dlp.YoutubeDL(self.ytdl_format_options)
         print("✅ Enhanced YouTube access configured successfully")
     
     async def extract_info(self, url: str, download: bool = False) -> Optional[Dict[str, Any]]:
@@ -338,9 +321,10 @@ class YouTubeDownloader:
                 error_msg = str(e)
                 print(f"Attempt {attempt + 1} failed: {error_msg}")
                 
-                # Handle specific JSON parsing errors
-                if "JSONDecodeError" in error_msg or "Expecting value" in error_msg:
-                    print(f"JSON parsing error detected on attempt {attempt + 1}")
+                # Handle specific JSON parsing errors and player response errors
+                if ("JSONDecodeError" in error_msg or "Expecting value" in error_msg or 
+                    "Failed to extract any player response" in error_msg):
+                    print(f"YouTube extraction error detected on attempt {attempt + 1}")
                     if attempt < 3:  # Not the last attempt
                         print("Retrying with different configuration...")
                         continue
@@ -349,8 +333,9 @@ class YouTubeDownloader:
                     # Re-raise with better error message
                     if "Sign in to confirm" in error_msg or "bot" in error_msg.lower():
                         raise Exception("YouTube anti-bot protection detected. The search term may be too generic or YouTube is blocking requests.")
-                    elif "JSONDecodeError" in error_msg or "Expecting value" in error_msg:
-                        raise Exception("YouTube returned invalid data. This may be due to anti-bot protection or server issues.")
+                    elif ("JSONDecodeError" in error_msg or "Expecting value" in error_msg or 
+                          "Failed to extract any player response" in error_msg):
+                        raise Exception("YouTube returned invalid data or blocked the request. This may be due to anti-bot protection or server issues.")
                     elif "Private video" in error_msg:
                         raise Exception("This video is private.")
                     elif "Video unavailable" in error_msg:
@@ -606,82 +591,38 @@ class YouTubeDownloader:
         
         try:
             # Check if this is a WebM Opus stream (best for Discord)
-            if 'mime=audio%2Fwebm' in url or 'mime=audio/webm' in url:
-                print("Using FFmpegOpusAudio for WebM stream")
-                # WebM Opus is natively supported by Discord, less processing needed
-                return discord.FFmpegOpusAudio(
-                    url,
-                    before_options='-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -nostdin',
-                    options='-vn'
-                )
+            if 'mime=audio%2Fwebm' in url and 'codecs=opus' in url:
+                print("Detected WebM Opus stream - using optimized playback")
+                # For WebM Opus, we can use minimal FFmpeg options
+                ffmpeg_options = {
+                    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -nostdin',
+                    'options': '-vn'  # No video, minimal processing for Opus
+                }
             else:
-                print("Using minimal FFmpeg PCM for compatibility")
-                # Use minimal FFmpeg options for maximum compatibility
-                source = discord.FFmpegPCMAudio(
-                    url,
-                    before_options='-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -nostdin',
-                    options='-vn -ar 48000 -ac 2'  # Discord-compatible sample rate and channels
-                )
-                return discord.PCMVolumeTransformer(source, volume=0.4)
-                
+                print("Using standard audio processing")
+                # For other formats, use standard options
+                ffmpeg_options = self.ffmpeg_options
+            
+            # Create the audio source
+            return discord.FFmpegPCMAudio(url, before_options=ffmpeg_options['before_options'], options=ffmpeg_options['options'])
+            
         except Exception as e:
-            print(f"Error creating optimized audio source: {e}")
-            # Ultimate fallback - most basic FFmpeg possible
-            print("Using basic FFmpeg as last resort")
-            try:
-                source = discord.FFmpegPCMAudio(url, options='-vn')
-                return discord.PCMVolumeTransformer(source, volume=0.4)
-            except Exception as fallback_error:
-                print(f"Even basic FFmpeg failed: {fallback_error}")
-                # This means FFmpeg is completely broken
-                raise Exception("FFmpeg is not working properly. Please check your FFmpeg installation.")
+            print(f"Error creating direct audio source: {e}")
+            # Fallback to basic audio source
+            return self._create_audio_source(url)
     
     def _create_audio_source(self, url: str) -> discord.AudioSource:
-        """Create FFmpeg audio source with robust options and volume control"""
-        # Enhanced FFmpeg options for better stability
-        before_options = (
-            '-reconnect 1 '
-            '-reconnect_streamed 1 '
-            '-reconnect_delay_max 5 '
-            '-nostdin '
-            '-user_agent "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"'
-        )
-        
-        options = (
-            '-vn '
-            '-b:a 128k '
-            '-bufsize 1024k '
-            '-maxrate 128k '
-            '-avoid_negative_ts make_zero '
-            '-fflags +genpts'
-        )
-        
-        print(f"Creating FFmpeg audio source with enhanced options")  # Debug logging
+        """Create audio source with volume control"""
+        print(f"Creating audio source with volume control")  # Debug logging
         
         try:
-            # Create basic FFmpeg source
-            ffmpeg_source = discord.FFmpegPCMAudio(
-                url,
-                before_options=before_options,
-                options=options
-            )
+            # Create FFmpeg audio source
+            source = discord.FFmpegPCMAudio(url, before_options=self.ffmpeg_options['before_options'], options=self.ffmpeg_options['options'])
             
-            # Wrap with volume transformer for better audio control
-            return discord.PCMVolumeTransformer(ffmpeg_source, volume=0.5)
+            # Add volume control
+            return discord.PCMVolumeTransformer(source, volume=0.5)
             
         except Exception as e:
-            print(f"Error creating enhanced FFmpeg audio source: {e}")  # Debug logging
-            # Fallback to basic options if enhanced options fail
-            print("Trying fallback FFmpeg options")  # Debug logging
-            try:
-                fallback_source = discord.FFmpegPCMAudio(
-                    url,
-                    before_options='-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -nostdin',
-                    options='-vn'
-                )
-                return discord.PCMVolumeTransformer(fallback_source, volume=0.5)
-            except Exception as fallback_error:
-                print(f"Fallback also failed: {fallback_error}")  # Debug logging
-                # Last resort - minimal options
-                minimal_source = discord.FFmpegPCMAudio(url, options='-vn')
-                return discord.PCMVolumeTransformer(minimal_source, volume=0.5) 
+            print(f"Error creating audio source: {e}")
+            # Last resort - basic audio source without volume control
+            return discord.FFmpegPCMAudio(url, before_options=self.ffmpeg_options['before_options'], options=self.ffmpeg_options['options']) 
