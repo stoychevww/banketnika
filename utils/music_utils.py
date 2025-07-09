@@ -144,6 +144,8 @@ class YouTubeDownloader:
                 None, 
                 lambda: self.ytdl.extract_info(url, download=download)
             )
+            if data is None:
+                raise Exception("No data returned from YouTube")
             return data
         except Exception as e:
             raise Exception(f"Error extracting info: {str(e)}")
@@ -160,4 +162,8 @@ class YouTubeDownloader:
     
     def get_audio_source(self, url: str) -> discord.FFmpegPCMAudio:
         """Get audio source for discord.py"""
-        return discord.FFmpegPCMAudio(url, **self.ffmpeg_options) 
+        return discord.FFmpegPCMAudio(
+            url,
+            before_options=self.ffmpeg_options['before_options'],
+            options=self.ffmpeg_options['options']
+        ) 

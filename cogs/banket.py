@@ -2,6 +2,7 @@ import discord
 from discord.ext import commands
 import random
 import asyncio
+from typing import Optional
 from config import Config
 from utils.music_utils import MusicUtils
 
@@ -102,7 +103,7 @@ class BanketCog(commands.Cog):
             await music_cog.play(ctx, query=f"{song} българска народна песен")
     
     @commands.command(name='toast', aliases=['тост'])
-    async def toast(self, ctx, *, message: str = None):
+    async def toast(self, ctx, *, message: Optional[str] = None):
         """Make a Bulgarian toast"""
         if message:
             toast_message = f"🥂 {message}\n\n{random.choice(self.bulgarian_toasts)}"
@@ -160,7 +161,7 @@ class BanketCog(commands.Cog):
             await music_cog.play(ctx, query=f"{song} българско хоро")
     
     @commands.command(name='artist', aliases=['изпълнител'])
-    async def artist(self, ctx, *, artist_name: str = None):
+    async def artist(self, ctx, *, artist_name: Optional[str] = None):
         """Play songs from a Bulgarian artist"""
         if not artist_name:
             artist_name = random.choice(self.bulgarian_artists)

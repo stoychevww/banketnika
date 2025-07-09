@@ -2,6 +2,7 @@ import discord
 from discord.ext import commands
 import random
 import time
+from typing import Optional
 from config import Config
 from utils.music_utils import MusicUtils
 
@@ -13,7 +14,7 @@ class General(commands.Cog):
         self.start_time = time.time()
     
     @commands.command(name='help', aliases=['помощ', 'команди'])
-    async def help_command(self, ctx, command_name: str = None):
+    async def help_command(self, ctx, command_name: Optional[str] = None):
         """Show help information"""
         if command_name:
             # Show help for specific command
@@ -164,18 +165,21 @@ class General(commands.Cog):
     @commands.command(name='invite', aliases=['покани'])
     async def invite(self, ctx):
         """Get bot invite link"""
-        invite_url = discord.utils.oauth_url(
-            self.bot.user.id,
-            permissions=discord.Permissions(
-                connect=True,
-                speak=True,
-                use_voice_activation=True,
-                send_messages=True,
-                embed_links=True,
-                read_message_history=True,
-                add_reactions=True
+        if self.bot.user:
+            invite_url = discord.utils.oauth_url(
+                self.bot.user.id,
+                permissions=discord.Permissions(
+                    connect=True,
+                    speak=True,
+                    use_voice_activation=True,
+                    send_messages=True,
+                    embed_links=True,
+                    read_message_history=True,
+                    add_reactions=True
+                )
             )
-        )
+        else:
+            invite_url = "Bot user not available"
         
         embed = MusicUtils.create_music_embed(
             "🔗 Покани Banketnika",

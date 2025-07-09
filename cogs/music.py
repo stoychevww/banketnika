@@ -54,10 +54,11 @@ class MusicPlayer:
             audio_source = self.downloader.get_audio_source(next_song['url'])
             
             # Play the audio
-            self.voice_client.play(
-                audio_source,
-                after=lambda e: self.bot.loop.create_task(self.play_next()) if not e else print(f"Player error: {e}")
-            )
+            if self.voice_client:
+                self.voice_client.play(
+                    audio_source,
+                    after=lambda e: self.bot.loop.create_task(self.play_next()) if not e else print(f"Player error: {e}")
+                )
             
             self.is_playing = True
             self.is_paused = False
@@ -394,7 +395,7 @@ class Music(commands.Cog):
         player = self.get_player(ctx.guild.id)
         
         if player.voice_client:
-            await player.voice_client.disconnect()
+            player.voice_client.stop()
             player.voice_client = None
             player.stop()
             player.clear_queue()
