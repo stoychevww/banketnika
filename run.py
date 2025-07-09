@@ -15,14 +15,14 @@ import sys
 import subprocess
 
 # Bot version info
-BOT_VERSION = "2.0.0"
-BOT_CODENAME = "Alternative Player Edition"
+BOT_VERSION = "2.1.0"
+BOT_CODENAME = "Enhanced YT-DLP Edition"
 
 def check_dependencies():
     """Check if all required dependencies are installed"""
     try:
         import discord
-        import youtube_dl
+        import yt_dlp
         import dotenv
         import aiohttp
         print("✅ All dependencies are installed!")
@@ -94,8 +94,8 @@ def main():
     """Main startup function"""
     print("🎵 Starting Banketnika Discord Bot...")
     print(f"   Version {BOT_VERSION} - {BOT_CODENAME}")
-    print("   Advanced Bulgarian Music Bot with Alternative Player")
-    print("=" * 55)
+    print("   Advanced Bulgarian Music Bot with YT-DLP & Enhanced Bot Detection Evasion")
+    print("=" * 70)
     
     # Check all prerequisites
     if not check_dependencies():
@@ -110,13 +110,13 @@ def main():
     if not check_env_file():
         sys.exit(1)
     
-    print("=" * 55)
+    print("=" * 70)
     if ffmpeg_available:
         print("🚀 All systems ready! Starting bot with full features...")
     else:
         print("🚀 Starting bot with alternative player (limited features)...")
     print("   Type Ctrl+C to stop the bot")
-    print("=" * 55)
+    print("=" * 70)
     
     # Import and run the bot
     try:
@@ -125,10 +125,10 @@ def main():
         asyncio.run(bot_main())
     except KeyboardInterrupt:
         print("\n")
-        print("=" * 55)
+        print("=" * 70)
         print("👋 Bot stopped by user. Довиждане!")
         print("   Thank you for using Banketnika Bot!")
-        print("=" * 55)
+        print("=" * 70)
     except ImportError as e:
         print(f"💥 Import error: {e}")
         print("   Make sure all files are in the correct location")
