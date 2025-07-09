@@ -144,9 +144,10 @@ class YouTubeDownloader:
     def __init__(self):
         # Browser user agents for better compatibility
         self.user_agents = [
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Edg/121.0.0.0',
         ]
         
         self.ytdl_format_options = {
@@ -168,15 +169,27 @@ class YouTubeDownloader:
             'playlistend': 50,  # Limit playlist to first 50 songs
             'prefer_ffmpeg': False,  # Disable FFmpeg preference
             'postprocessors': [],  # No post-processing
-            # Cookie-based anti-bot protection will be set up in _setup_browser_cookies()
+            # Enhanced headers to bypass JSON parsing errors
             'http_headers': {
-                'User-Agent': self.user_agents[0]  # Use latest Chrome user agent
+                'User-Agent': self.user_agents[0],
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+                'Accept-Language': 'en-US,en;q=0.9,bg;q=0.8',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'DNT': '1',
+                'Connection': 'keep-alive',
+                'Upgrade-Insecure-Requests': '1',
+                'Sec-Fetch-Dest': 'document',
+                'Sec-Fetch-Mode': 'navigate',
+                'Sec-Fetch-Site': 'none',
+                'Sec-Fetch-User': '?1',
+                'Cache-Control': 'max-age=0',
             },
-            # Additional YouTube-specific options
+            # Additional YouTube-specific options to handle JSON errors
             'extractor_args': {
                 'youtube': {
                     'skip': ['hls', 'dash'],
                     'player_skip': ['configs'],
+                    'player_client': ['web', 'android', 'ios'],
                 }
             },
         }
@@ -238,37 +251,74 @@ class YouTubeDownloader:
         print("✅ Enhanced YouTube access configured successfully")
     
     async def extract_info(self, url: str, download: bool = False) -> Optional[Dict[str, Any]]:
-        """Extract information from YouTube URL with retry logic"""
+        """Extract information from YouTube URL with enhanced retry logic for JSON errors"""
         loop = asyncio.get_event_loop()
         
         # Try multiple times with different configurations
-        for attempt in range(3):
+        for attempt in range(4):  # Increased to 4 attempts
             try:
-                print(f"Extraction attempt {attempt + 1}/3 for: {url}")
+                print(f"Extraction attempt {attempt + 1}/4 for: {url}")
                 
-                # For each attempt, try with slightly different options
-                if attempt == 1:
-                    # Second attempt: different user agent + more aggressive bypass
+                # Progressive enhancement of headers and options for each attempt
+                if attempt == 0:
+                    # First attempt: Use base configuration with enhanced headers
+                    pass  # Use default configuration
+                elif attempt == 1:
+                    # Second attempt: Firefox user agent + different client
                     self.ytdl.params.update({
                         'http_headers': {
-                            'User-Agent': self.user_agents[1]  # Firefox user agent
+                            'User-Agent': self.user_agents[1],  # Firefox
+                            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                            'Accept-Language': 'en-US,en;q=0.5',
+                            'Accept-Encoding': 'gzip, deflate',
+                            'Connection': 'keep-alive',
+                            'Upgrade-Insecure-Requests': '1',
                         },
                         'extractor_args': {
                             'youtube': {
                                 'skip': ['hls', 'dash', 'translated_subs'],
-                                'player_skip': ['configs', 'webpage', 'js'],
+                                'player_skip': ['configs'],
+                                'player_client': ['android', 'web'],
                             }
                         }
                     })
                 elif attempt == 2:
-                    # Third attempt: Safari user agent + minimal extraction
+                    # Third attempt: Safari user agent + iOS client
                     self.ytdl.params.update({
-                        'format': 'worst',
                         'http_headers': {
-                            'User-Agent': self.user_agents[2]  # Safari user agent
+                            'User-Agent': self.user_agents[2],  # Safari
+                            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+                            'Accept-Language': 'en-US,en;q=0.9',
+                            'Accept-Encoding': 'gzip, deflate, br',
                         },
-                        'extractor_args': {'youtube': {'skip': ['hls', 'dash']}},
+                        'extractor_args': {
+                            'youtube': {
+                                'skip': ['hls', 'dash'],
+                                'player_client': ['ios', 'web'],
+                            }
+                        }
                     })
+                elif attempt == 3:
+                    # Fourth attempt: Edge user agent + minimal extraction
+                    self.ytdl.params.update({
+                        'format': 'bestaudio/best',
+                        'http_headers': {
+                            'User-Agent': self.user_agents[3],  # Edge
+                            'Accept': '*/*',
+                            'Accept-Language': 'en-US,en;q=0.9',
+                        },
+                        'extractor_args': {
+                            'youtube': {
+                                'skip': ['hls', 'dash', 'translated_subs'],
+                                'player_client': ['web'],
+                            }
+                        },
+                        'extractflat': True,  # Minimal extraction for last attempt
+                    })
+                
+                # Add delay between attempts to avoid rate limiting
+                if attempt > 0:
+                    await asyncio.sleep(2 + attempt)  # Progressive delay
                 
                 data = await loop.run_in_executor(
                     None, 
@@ -277,7 +327,7 @@ class YouTubeDownloader:
                 
                 if data is None:
                     print(f"No data returned from YouTube on attempt {attempt + 1}")
-                    if attempt == 2:  # Last attempt
+                    if attempt == 3:  # Last attempt
                         return None
                     continue
                 
@@ -288,19 +338,25 @@ class YouTubeDownloader:
                 error_msg = str(e)
                 print(f"Attempt {attempt + 1} failed: {error_msg}")
                 
-                if attempt == 2:  # Last attempt
+                # Handle specific JSON parsing errors
+                if "JSONDecodeError" in error_msg or "Expecting value" in error_msg:
+                    print(f"JSON parsing error detected on attempt {attempt + 1}")
+                    if attempt < 3:  # Not the last attempt
+                        print("Retrying with different configuration...")
+                        continue
+                
+                if attempt == 3:  # Last attempt
                     # Re-raise with better error message
-                    if "Sign in to confirm" in error_msg:
-                        raise Exception("YouTube anti-bot protection detected. Try a different video or search term.")
+                    if "Sign in to confirm" in error_msg or "bot" in error_msg.lower():
+                        raise Exception("YouTube anti-bot protection detected. The search term may be too generic or YouTube is blocking requests.")
+                    elif "JSONDecodeError" in error_msg or "Expecting value" in error_msg:
+                        raise Exception("YouTube returned invalid data. This may be due to anti-bot protection or server issues.")
                     elif "Private video" in error_msg:
                         raise Exception("This video is private.")
                     elif "Video unavailable" in error_msg:
                         raise Exception("Video is not available.")
                     else:
-                        raise Exception(f"Failed to extract video info: {error_msg}")
-                
-                # Wait before retry
-                await asyncio.sleep(1)
+                        raise Exception(f"Failed to extract video info after 4 attempts: {error_msg}")
         
         return None
     
@@ -393,54 +449,100 @@ class YouTubeDownloader:
         return any(indicator in query.lower() for indicator in url_indicators)
     
     async def fallback_search(self, query: str) -> Optional[Dict[str, Any]]:
-        """Fallback search method when main search fails"""
-        try:
-            print(f"Trying fallback search for: {query}")
-            
-            # Create a new ytdl instance with minimal options + cookies
-            fallback_options = {
-                'format': 'bestaudio/best',
-                'quiet': True,
-                'no_warnings': True,
-                'default_search': 'ytsearch',
-                'ignoreerrors': True,
-                'extractflat': True,  # Minimal extraction
-                'http_headers': {
-                    'User-Agent': self.user_agents[0],
-                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                    'Accept-Language': 'en-us,en;q=0.5',
+        """Enhanced fallback search method with multiple strategies"""
+        print(f"Trying fallback search for: {query}")
+        
+        # Try multiple fallback strategies
+        fallback_strategies = [
+            {
+                'name': 'Minimal extraction',
+                'options': {
+                    'format': 'bestaudio/best',
+                    'quiet': True,
+                    'no_warnings': True,
+                    'default_search': 'ytsearch',
+                    'ignoreerrors': True,
+                    'extractflat': True,
+                    'http_headers': {
+                        'User-Agent': self.user_agents[0],
+                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                        'Accept-Language': 'en-US,en;q=0.9',
+                    }
+                }
+            },
+            {
+                'name': 'Android client',
+                'options': {
+                    'format': 'bestaudio/best',
+                    'quiet': True,
+                    'no_warnings': True,
+                    'default_search': 'ytsearch',
+                    'ignoreerrors': True,
+                    'http_headers': {
+                        'User-Agent': 'com.google.android.youtube/17.36.4 (Linux; U; Android 12; GB) gzip',
+                        'Accept': '*/*',
+                    },
+                    'extractor_args': {
+                        'youtube': {
+                            'player_client': ['android'],
+                        }
+                    }
+                }
+            },
+            {
+                'name': 'Basic search',
+                'options': {
+                    'format': 'worst',
+                    'quiet': True,
+                    'no_warnings': True,
+                    'default_search': 'ytsearch',
+                    'ignoreerrors': True,
+                    'extractflat': True,
+                    'http_headers': {
+                        'User-Agent': self.user_agents[1],
+                        'Accept': '*/*',
+                    }
                 }
             }
-            
-            # Don't use cookies in fallback - use enhanced headers only
-            
-            fallback_ytdl = yt_dlp.YoutubeDL(fallback_options)
-            
-            # Try searching with minimal extraction
-            loop = asyncio.get_event_loop()
-            info = await loop.run_in_executor(
-                None,
-                lambda: fallback_ytdl.extract_info(f"ytsearch1:{query}", download=False)
-            )
-            
-            if info and 'entries' in info and info['entries']:
-                result = info['entries'][0]
-                if result and 'id' in result:
-                    # Construct basic info
-                    return {
-                        'title': result.get('title', query),
-                        'id': result['id'],
-                        'webpage_url': f"https://www.youtube.com/watch?v={result['id']}",
-                        'url': f"https://www.youtube.com/watch?v={result['id']}",  # Will be processed later
-                        'duration': result.get('duration', 0),
-                        'uploader': result.get('uploader', 'Unknown'),
-                    }
-            
-            return None
-            
-        except Exception as e:
-            print(f"Fallback search also failed: {e}")
-            return None
+        ]
+        
+        loop = asyncio.get_event_loop()
+        
+        for strategy in fallback_strategies:
+            try:
+                print(f"Trying fallback strategy: {strategy['name']}")
+                
+                fallback_ytdl = yt_dlp.YoutubeDL(strategy['options'])
+                
+                # Try searching with this strategy
+                info = await loop.run_in_executor(
+                    None,
+                    lambda: fallback_ytdl.extract_info(f"ytsearch1:{query}", download=False)
+                )
+                
+                if info and 'entries' in info and info['entries']:
+                    result = info['entries'][0]
+                    if result and 'id' in result:
+                        print(f"Fallback strategy '{strategy['name']}' succeeded!")
+                        # Construct basic info
+                        return {
+                            'title': result.get('title', query),
+                            'id': result['id'],
+                            'webpage_url': f"https://www.youtube.com/watch?v={result['id']}",
+                            'url': f"https://www.youtube.com/watch?v={result['id']}",  # Will be processed later
+                            'duration': result.get('duration', 0),
+                            'uploader': result.get('uploader', 'Unknown'),
+                        }
+                
+                # Wait between strategies
+                await asyncio.sleep(1)
+                
+            except Exception as e:
+                print(f"Fallback strategy '{strategy['name']}' failed: {e}")
+                continue
+        
+        print("All fallback strategies failed")
+        return None
     
     async def get_audio_source(self, url: str) -> discord.AudioSource:
         """Get audio source without FFmpeg using direct streaming"""
