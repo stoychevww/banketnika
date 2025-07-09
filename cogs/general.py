@@ -66,6 +66,7 @@ class General(commands.Cog):
             special_commands = [
                 f"`{Config.BOT_PREFIX}banket` - Банкет режим!",
                 f"`{Config.BOT_PREFIX}nazdrave` - Наздраве!",
+                f"`{Config.BOT_PREFIX}dgd` - ДА ГО ДУХАШ ПАЛЯК АЙДЕ ПАЛИ",
                 f"`{Config.BOT_PREFIX}info` - Информация за бота"
             ]
             
@@ -187,6 +188,17 @@ class General(commands.Cog):
             f"Искаш да добавиш {Config.BOT_NAME} в твоя сървър?\n"
             f"[Кликни тук за покана]({invite_url})",
             Config.COLOR_SUCCESS
+        )
+        
+        await ctx.send(embed=embed)
+
+    @commands.command(name='dgd')
+    async def dgd(self, ctx):
+        """ДА ГО ДУХАШ ПАЛЯК АЙ ПАЛИ"""
+        embed = MusicUtils.create_music_embed(
+            "ДГД БРБ",
+            "**ДА ГО ДУХАШ ПАЛЯК АЙ ПАЛИ**",
+            Config.COLOR_SECONDARY
         )
         
         await ctx.send(embed=embed)
