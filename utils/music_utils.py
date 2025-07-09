@@ -1,6 +1,6 @@
 import asyncio
 import discord
-import yt_dlp
+import youtube_dl
 import random
 import subprocess
 import shutil
@@ -169,38 +169,25 @@ class YouTubeDownloader:
             'playlistend': 50,  # Limit playlist to first 50 songs
             'prefer_ffmpeg': False,  # Disable FFmpeg preference
             'postprocessors': [],  # No post-processing
-            # Enhanced headers to bypass player response errors
-            'http_headers': {
-                'User-Agent': self.user_agents[0],
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-                'Accept-Language': 'en-US,en;q=0.9,bg;q=0.8',
-                'Accept-Encoding': 'gzip, deflate, br',
-                'DNT': '1',
-                'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1',
-                'Sec-Fetch-Dest': 'document',
-                'Sec-Fetch-Mode': 'navigate',
-                'Sec-Fetch-Site': 'none',
-                'Sec-Fetch-User': '?1',
-                'Cache-Control': 'max-age=0',
-                'Referer': 'https://www.youtube.com/',
-            },
-            # Enhanced YouTube-specific options to handle player response errors
-            'extractor_args': {
-                'youtube': {
-                    'skip': ['hls', 'dash'],
-                    'player_skip': ['configs'],
-                    'player_client': ['web', 'android', 'ios', 'mweb'],
-                    'innertube_host': 'www.youtube.com',
-                    'innertube_key': None,  # Let yt-dlp auto-detect
-                    'check_formats': 'selected',
-                }
-            },
-            # Additional options to handle player response failures
+            # Additional options for youtube-dl
             'socket_timeout': 30,
             'retries': 3,
             'fragment_retries': 3,
             'skip_unavailable_fragments': True,
+            'writesubtitles': False,
+            'writeautomaticsub': False,
+            'allsubtitles': False,
+            'listsubtitles': False,
+            'subtitlesformat': 'best',
+            'subtitleslangs': ['en'],
+            'force_generic_extractor': False,
+            'no_check_certificate': True,
+            'prefer_insecure': False,
+            'call_home': False,
+            'sleep_interval': 0,
+            'max_sleep_interval': 0,
+            'sleep_interval_requests': 0,
+            'sleep_interval_subtitles': 0,
         }
         
         self.ffmpeg_options = {
@@ -209,95 +196,25 @@ class YouTubeDownloader:
         }
         
         # Initialize with default options
-        self.ytdl = yt_dlp.YoutubeDL(self.ytdl_format_options)
+        self.ytdl = youtube_dl.YoutubeDL(self.ytdl_format_options)
         self._setup_browser_cookies()
     
     def _setup_browser_cookies(self):
-        """Setup enhanced YouTube access without relying on browser cookies"""
-        print("Setting up enhanced YouTube access...")
+        """Setup enhanced YouTube access for youtube-dl"""
+        print("Setting up YouTube access with youtube-dl...")
         
-        # Skip cookie loading due to common DPAPI issues on Windows
-        # Instead use the most effective header-based approach
-        print("⚠️  Skipping browser cookies due to compatibility issues")
-        print("Using advanced header-based approach for YouTube access")
-        
-        # Update the ytdl instance with enhanced options
-        self.ytdl.params.update({
-            'http_headers': self.ytdl_format_options['http_headers'],
-            'extractor_args': self.ytdl_format_options['extractor_args'],
-            'socket_timeout': self.ytdl_format_options['socket_timeout'],
-            'retries': self.ytdl_format_options['retries'],
-            'fragment_retries': self.ytdl_format_options['fragment_retries'],
-            'skip_unavailable_fragments': self.ytdl_format_options['skip_unavailable_fragments'],
-        })
-        
-        print("✅ Enhanced YouTube access configured successfully")
+        # youtube-dl doesn't support the same parameter updates as yt-dlp
+        # The configuration is set in the constructor and doesn't need runtime updates
+        print("✅ YouTube access configured with youtube-dl")
     
     async def extract_info(self, url: str, download: bool = False) -> Optional[Dict[str, Any]]:
-        """Extract information from YouTube URL with enhanced retry logic for JSON errors"""
+        """Extract information from YouTube URL with enhanced retry logic"""
         loop = asyncio.get_event_loop()
         
         # Try multiple times with different configurations
-        for attempt in range(4):  # Increased to 4 attempts
+        for attempt in range(3):  # Reduced to 3 attempts for simplicity
             try:
-                print(f"Extraction attempt {attempt + 1}/4 for: {url}")
-                
-                # Progressive enhancement of headers and options for each attempt
-                if attempt == 0:
-                    # First attempt: Use base configuration with enhanced headers
-                    pass  # Use default configuration
-                elif attempt == 1:
-                    # Second attempt: Firefox user agent + different client
-                    self.ytdl.params.update({
-                        'http_headers': {
-                            'User-Agent': self.user_agents[1],  # Firefox
-                            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                            'Accept-Language': 'en-US,en;q=0.5',
-                            'Accept-Encoding': 'gzip, deflate',
-                            'Connection': 'keep-alive',
-                            'Upgrade-Insecure-Requests': '1',
-                        },
-                        'extractor_args': {
-                            'youtube': {
-                                'skip': ['hls', 'dash', 'translated_subs'],
-                                'player_skip': ['configs'],
-                                'player_client': ['android', 'web'],
-                            }
-                        }
-                    })
-                elif attempt == 2:
-                    # Third attempt: Safari user agent + iOS client
-                    self.ytdl.params.update({
-                        'http_headers': {
-                            'User-Agent': self.user_agents[2],  # Safari
-                            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
-                            'Accept-Language': 'en-US,en;q=0.9',
-                            'Accept-Encoding': 'gzip, deflate, br',
-                        },
-                        'extractor_args': {
-                            'youtube': {
-                                'skip': ['hls', 'dash'],
-                                'player_client': ['ios', 'web'],
-                            }
-                        }
-                    })
-                elif attempt == 3:
-                    # Fourth attempt: Edge user agent + minimal extraction
-                    self.ytdl.params.update({
-                        'format': 'bestaudio/best',
-                        'http_headers': {
-                            'User-Agent': self.user_agents[3],  # Edge
-                            'Accept': '*/*',
-                            'Accept-Language': 'en-US,en;q=0.9',
-                        },
-                        'extractor_args': {
-                            'youtube': {
-                                'skip': ['hls', 'dash', 'translated_subs'],
-                                'player_client': ['web'],
-                            }
-                        },
-                        'extractflat': True,  # Minimal extraction for last attempt
-                    })
+                print(f"Extraction attempt {attempt + 1}/3 for: {url}")
                 
                 # Add delay between attempts to avoid rate limiting
                 if attempt > 0:
@@ -310,7 +227,7 @@ class YouTubeDownloader:
                 
                 if data is None:
                     print(f"No data returned from YouTube on attempt {attempt + 1}")
-                    if attempt == 3:  # Last attempt
+                    if attempt == 2:  # Last attempt
                         return None
                     continue
                 
@@ -321,17 +238,30 @@ class YouTubeDownloader:
                 error_msg = str(e)
                 print(f"Attempt {attempt + 1} failed: {error_msg}")
                 
+                # Handle specific DNS and network errors
+                if ("Name or service not known" in error_msg or 
+                    "TransportError" in error_msg or 
+                    "ConnectionError" in error_msg or
+                    "timeout" in error_msg.lower()):
+                    print(f"Network error detected on attempt {attempt + 1}")
+                    if attempt < 2:  # Not the last attempt
+                        print("Retrying due to network issue...")
+                        await asyncio.sleep(3 + attempt)  # Longer delay for network issues
+                        continue
+                
                 # Handle specific JSON parsing errors and player response errors
                 if ("JSONDecodeError" in error_msg or "Expecting value" in error_msg or 
                     "Failed to extract any player response" in error_msg):
                     print(f"YouTube extraction error detected on attempt {attempt + 1}")
-                    if attempt < 3:  # Not the last attempt
+                    if attempt < 2:  # Not the last attempt
                         print("Retrying with different configuration...")
                         continue
                 
-                if attempt == 3:  # Last attempt
+                if attempt == 2:  # Last attempt
                     # Re-raise with better error message
-                    if "Sign in to confirm" in error_msg or "bot" in error_msg.lower():
+                    if "Name or service not known" in error_msg:
+                        raise Exception("Network connectivity issue. Please check your internet connection and try again.")
+                    elif "Sign in to confirm" in error_msg or "bot" in error_msg.lower():
                         raise Exception("YouTube anti-bot protection detected. The search term may be too generic or YouTube is blocking requests.")
                     elif ("JSONDecodeError" in error_msg or "Expecting value" in error_msg or 
                           "Failed to extract any player response" in error_msg):
@@ -341,7 +271,7 @@ class YouTubeDownloader:
                     elif "Video unavailable" in error_msg:
                         raise Exception("Video is not available.")
                     else:
-                        raise Exception(f"Failed to extract video info after 4 attempts: {error_msg}")
+                        raise Exception(f"Failed to extract video info after 3 attempts: {error_msg}")
         
         return None
     
@@ -376,15 +306,38 @@ class YouTubeDownloader:
                     print("No search info returned")
                     return None
                 
+                print(f"Search info received: {type(info)}")  # Debug logging
+                print(f"Info keys: {list(info.keys()) if isinstance(info, dict) else 'Not a dict'}")  # Debug logging
+                
                 if 'entries' not in info or not info['entries'] or len(info['entries']) == 0:
                     print("No search results found in entries")
                     return None
                 
-                result = info['entries'][0]
+                print(f"Total entries found: {len(info['entries'])}")  # Debug logging
+                print(f"Entry types: {[type(entry) for entry in info['entries'][:5]]}")  # Debug logging first 5
                 
-                # Handle None result
-                if not result:
-                    print("First search result is None")
+                # Filter out None entries and find the first valid result
+                valid_entries = [entry for entry in info['entries'] if entry is not None]
+                
+                print(f"Valid entries after filtering: {len(valid_entries)}")  # Debug logging
+                
+                if not valid_entries:
+                    print("All search results are None - no valid entries found")
+                    # Try to understand why all entries are None
+                    none_count = sum(1 for entry in info['entries'] if entry is None)
+                    print(f"Found {none_count} None entries out of {len(info['entries'])} total entries")
+                    return None
+                
+                result = valid_entries[0]
+                
+                print(f"Selected result type: {type(result)}")  # Debug logging
+                print(f"Result keys: {list(result.keys()) if isinstance(result, dict) else 'Not a dict'}")  # Debug logging
+                
+                # Double-check the result is valid
+                if not result or not result.get('id'):
+                    print("First valid search result is missing required data")
+                    print(f"Result has ID: {bool(result.get('id'))}")  # Debug logging
+                    print(f"Result ID value: {result.get('id')}")  # Debug logging
                     return None
                 
                 # For search results, the webpage_url is the actual YouTube watch URL
@@ -497,7 +450,7 @@ class YouTubeDownloader:
             try:
                 print(f"Trying fallback strategy: {strategy['name']}")
                 
-                fallback_ytdl = yt_dlp.YoutubeDL(strategy['options'])
+                fallback_ytdl = youtube_dl.YoutubeDL(strategy['options'])
                 
                 # Try searching with this strategy
                 info = await loop.run_in_executor(
@@ -506,18 +459,28 @@ class YouTubeDownloader:
                 )
                 
                 if info and 'entries' in info and info['entries']:
-                    result = info['entries'][0]
-                    if result and 'id' in result:
-                        print(f"Fallback strategy '{strategy['name']}' succeeded!")
-                        # Construct basic info
-                        return {
-                            'title': result.get('title', query),
-                            'id': result['id'],
-                            'webpage_url': f"https://www.youtube.com/watch?v={result['id']}",
-                            'url': f"https://www.youtube.com/watch?v={result['id']}",  # Will be processed later
-                            'duration': result.get('duration', 0),
-                            'uploader': result.get('uploader', 'Unknown'),
-                        }
+                    # Filter out None entries
+                    valid_entries = [entry for entry in info['entries'] if entry is not None]
+                    
+                    if valid_entries:
+                        result = valid_entries[0]
+                        if result and result.get('id'):
+                            print(f"Fallback strategy '{strategy['name']}' succeeded!")
+                            # Construct basic info
+                            return {
+                                'title': result.get('title', query),
+                                'id': result['id'],
+                                'webpage_url': f"https://www.youtube.com/watch?v={result['id']}",
+                                'url': f"https://www.youtube.com/watch?v={result['id']}",  # Will be processed later
+                                'duration': result.get('duration', 0),
+                                'uploader': result.get('uploader', 'Unknown'),
+                            }
+                        else:
+                            print(f"Fallback strategy '{strategy['name']}' returned invalid result")
+                    else:
+                        print(f"Fallback strategy '{strategy['name']}' returned no valid entries")
+                else:
+                    print(f"Fallback strategy '{strategy['name']}' returned no info or entries")
                 
                 # Wait between strategies
                 await asyncio.sleep(1)
