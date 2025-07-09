@@ -5,6 +5,10 @@
 .env.test.local
 .env.production.local
 
+# mine
+2021.12.17
+2025.5.5
+
 # Python
 __pycache__/
 *.py[cod]
