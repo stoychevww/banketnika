@@ -1,9 +1,12 @@
 import asyncio
 import discord
-import youtube_dl
+import yt_dlp
 import random
 import subprocess
 import shutil
+import json
+import time
+import os
 from typing import Optional, Dict, Any
 from config import Config
 
@@ -193,278 +196,267 @@ class MusicUtils:
         return embed
 
 class YouTubeDownloader:
-    """YouTube downloader utility class"""
+    """Enhanced YouTube downloader using yt-dlp with better bot detection evasion"""
     
     def __init__(self):
-        # Browser user agents for better compatibility - updated with more recent versions
+        # Enhanced user agents - more recent and diverse
         self.user_agents = [
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0',
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36 Edg/131.0.0.0',
-            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:122.0) Gecko/20100101 Firefox/122.0',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:122.0) Gecko/20100101 Firefox/122.0',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Edg/121.0.0.0',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2.1 Safari/605.1.15'
         ]
         
-        # Rotate user agent for each instance
-        import random
+        # Rotate user agent
         self.current_user_agent = random.choice(self.user_agents)
         
-        self.ytdl_format_options = {
+        # Base options for yt-dlp
+        self.base_options = {
             'format': 'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best',
-            'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
-            'restrictfilenames': True,
-            'noplaylist': False,  # Enable playlist support
-            'nocheckcertificate': True,
-            'ignoreerrors': True,  # Continue on errors in playlists
-            'logtostderr': False,
             'quiet': True,
             'no_warnings': True,
-            'default_search': 'ytsearch',
-            'source_address': '0.0.0.0',
             'extractflat': False,
+            'writethumbnail': False,
+            'writeinfojson': False,
+            'ignoreerrors': True,
             'age_limit': 99,
             'geo_bypass': True,
-            'cookiefile': None,
-            'playlistend': 50,  # Limit playlist to first 50 songs
-            'prefer_ffmpeg': False,  # Disable FFmpeg preference
-            'postprocessors': [],  # No post-processing
-            # Enhanced headers to avoid bot detection
-            'http_headers': {
-                'User-Agent': self.current_user_agent,
-                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
-                'Accept-Language': 'en-US,en;q=0.9',
-                'Accept-Encoding': 'gzip, deflate, br, zstd',
-                'DNT': '1',
-                'Connection': 'keep-alive',
-                'Upgrade-Insecure-Requests': '1',
-                'Sec-Fetch-Dest': 'document',
-                'Sec-Fetch-Mode': 'navigate',
-                'Sec-Fetch-Site': 'none',
-                'Sec-Fetch-User': '?1',
-                'Cache-Control': 'max-age=0',
-                'sec-ch-ua': '"Google Chrome";v="131", "Chromium";v="131", "Not_A Brand";v="24"',
-                'sec-ch-ua-mobile': '?0',
-                'sec-ch-ua-platform': '"Windows"',
-            },
-            # Additional options for youtube-dl
+            'nocheckcertificate': True,
+            'prefer_ffmpeg': False,
             'socket_timeout': 30,
             'retries': 3,
             'fragment_retries': 3,
             'skip_unavailable_fragments': True,
-            'writesubtitles': False,
-            'writeautomaticsub': False,
-            'allsubtitles': False,
-            'listsubtitles': False,
-            'subtitlesformat': 'best',
-            'subtitleslangs': ['en'],
-            'force_generic_extractor': False,
-            'no_check_certificate': True,
-            'prefer_insecure': False,
-            'call_home': False,
-            'sleep_interval': 0,
-            'max_sleep_interval': 0,
-            'sleep_interval_requests': 1,  # Add delay between requests
-            'sleep_interval_subtitles': 1,
+            'extractor_retries': 3,
+            'file_access_retries': 3,
+            'playlistend': 50,
+            'source_address': '0.0.0.0'
         }
         
-        self.ffmpeg_options = {
-            'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -nostdin',
-            'options': '-vn -filter:a "volume=0.5"'
+        # Enhanced headers
+        self.headers = {
+            'User-Agent': self.current_user_agent,
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
+            'Cache-Control': 'max-age=0',
+            'sec-ch-ua': '"Not A(Brand";v="99", "Google Chrome";v="121", "Chromium";v="121"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"'
         }
         
-        # Initialize with default options
-        self.ytdl = youtube_dl.YoutubeDL(self.ytdl_format_options)
-        self._setup_browser_cookies()
+        # Create yt-dlp instance
+        self.ytdl = self._create_ytdl_instance()
+        
+        # Cookie jar for session persistence
+        self.cookie_jar = {}
     
-    def _setup_browser_cookies(self):
-        """Setup enhanced YouTube access for youtube-dl"""
-        print("Setting up YouTube access with youtube-dl...")
+    def _create_ytdl_instance(self, additional_options: Optional[Dict] = None):
+        """Create a new yt-dlp instance with current options"""
+        options = self.base_options.copy()
         
-        # youtube-dl doesn't support the same parameter updates as yt-dlp
-        # The configuration is set in the constructor and doesn't need runtime updates
-        print("✅ YouTube access configured with youtube-dl")
+        # Add headers
+        options['http_headers'] = self.headers.copy()
+        
+        # Add any additional options
+        if additional_options:
+            options.update(additional_options)
+        
+        return yt_dlp.YoutubeDL(options)
+    
+    def _rotate_user_agent(self):
+        """Rotate to a new user agent"""
+        self.current_user_agent = random.choice(self.user_agents)
+        self.headers['User-Agent'] = self.current_user_agent
     
     async def extract_info(self, url: str, download: bool = False) -> Optional[Dict[str, Any]]:
         """Extract information from YouTube URL with enhanced retry logic"""
         loop = asyncio.get_event_loop()
         
-        # Try multiple times with different configurations
-        for attempt in range(3):  # Reduced to 3 attempts for simplicity
+        # Try multiple extraction strategies
+        strategies = [
+            {'name': 'Standard', 'options': {}},
+            {'name': 'No geo-bypass', 'options': {'geo_bypass': False}},
+            {'name': 'Force generic', 'options': {'force_generic_extractor': True}},
+            {'name': 'Different user agent', 'options': {'http_headers': {**self.headers, 'User-Agent': random.choice(self.user_agents)}}},
+            {'name': 'Mobile user agent', 'options': {'http_headers': {**self.headers, 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_2_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1'}}},
+        ]
+        
+        for i, strategy in enumerate(strategies):
             try:
-                print(f"Extraction attempt {attempt + 1}/3 for: {url}")
+                print(f"Extraction strategy {i+1}/{len(strategies)}: {strategy['name']}")
                 
-                # Add delay between attempts to avoid rate limiting
-                if attempt > 0:
-                    await asyncio.sleep(2 + attempt)  # Progressive delay
+                # Create new ytdl instance with strategy options
+                ytdl = self._create_ytdl_instance(strategy['options'])
                 
+                # Add delay between attempts
+                if i > 0:
+                    delay = 2 + (i * 2)  # Progressive delay
+                    print(f"Waiting {delay} seconds before next attempt...")
+                    await asyncio.sleep(delay)
+                
+                # Extract info
                 data = await loop.run_in_executor(
-                    None, 
-                    lambda: self.ytdl.extract_info(url, download=download)
+                    None,
+                    lambda: ytdl.extract_info(url, download=download)
                 )
                 
-                if data is None:
-                    print(f"No data returned from YouTube on attempt {attempt + 1}")
-                    if attempt == 2:  # Last attempt
-                        return None
-                    continue
-                
-                print(f"Successfully extracted info on attempt {attempt + 1}")
-                return data
-                
+                if data:
+                    print(f"✅ Strategy '{strategy['name']}' succeeded!")
+                    return data
+                else:
+                    print(f"❌ Strategy '{strategy['name']}' returned no data")
+                    
             except Exception as e:
                 error_msg = str(e)
-                print(f"Attempt {attempt + 1} failed: {error_msg}")
+                print(f"❌ Strategy '{strategy['name']}' failed: {error_msg}")
                 
-                # Handle specific DNS and network errors
-                if ("Name or service not known" in error_msg or 
-                    "TransportError" in error_msg or 
-                    "ConnectionError" in error_msg or
-                    "timeout" in error_msg.lower()):
-                    print(f"Network error detected on attempt {attempt + 1}")
-                    if attempt < 2:  # Not the last attempt
-                        print("Retrying due to network issue...")
-                        await asyncio.sleep(3 + attempt)  # Longer delay for network issues
-                        continue
+                # Check for specific errors
+                if "Sign in to confirm" in error_msg:
+                    print("Bot detection triggered, trying next strategy...")
+                    continue
+                elif "Private video" in error_msg:
+                    raise Exception("This video is private and cannot be accessed.")
+                elif "Video unavailable" in error_msg:
+                    raise Exception("Video is not available.")
+                elif "Premieres in" in error_msg:
+                    raise Exception("This video is a premiere that hasn't started yet.")
+                elif "This live event will begin in" in error_msg:
+                    raise Exception("This is a scheduled live stream that hasn't started yet.")
                 
-                # Handle specific JSON parsing errors and player response errors
-                if ("JSONDecodeError" in error_msg or "Expecting value" in error_msg or 
-                    "Failed to extract any player response" in error_msg):
-                    print(f"YouTube extraction error detected on attempt {attempt + 1}")
-                    if attempt < 2:  # Not the last attempt
-                        print("Retrying with different configuration...")
-                        continue
-                
-                if attempt == 2:  # Last attempt
-                    # Re-raise with better error message
-                    if "Name or service not known" in error_msg:
-                        raise Exception("Network connectivity issue. Please check your internet connection and try again.")
-                    elif "Sign in to confirm" in error_msg or "bot" in error_msg.lower():
-                        raise Exception("YouTube anti-bot protection detected. The search term may be too generic or YouTube is blocking requests.")
-                    elif ("JSONDecodeError" in error_msg or "Expecting value" in error_msg or 
-                          "Failed to extract any player response" in error_msg):
-                        raise Exception("YouTube returned invalid data or blocked the request. This may be due to anti-bot protection or server issues.")
-                    elif "Private video" in error_msg:
-                        raise Exception("This video is private.")
-                    elif "Video unavailable" in error_msg:
-                        raise Exception("Video is not available.")
-                    else:
-                        raise Exception(f"Failed to extract video info after 3 attempts: {error_msg}")
+                # Continue to next strategy
+                continue
         
-        return None
+        # If all strategies failed
+        raise Exception("All extraction strategies failed. YouTube may be temporarily blocking requests.")
     
     async def search_youtube(self, query: str) -> Optional[Dict[str, Any]]:
-        """Search YouTube for a query or extract info from URL"""
+        """Search YouTube with enhanced bot detection evasion"""
         try:
-            print(f"Searching YouTube for: {query}")  # Debug logging
+            print(f"🔍 Searching for: {query}")
             
-            # Check if it's a URL
+            # Check if it's a direct URL
             if self._is_url(query):
-                print(f"Detected URL: {query}")  # Debug logging
-                # Direct URL - extract info directly
-                info = await self.extract_info(query, download=False)
-                
-                # Handle None response
-                if not info:
-                    print("No info extracted from URL")
-                    return None
-                
-                # Ensure we have the webpage_url for later refreshing
-                if 'webpage_url' not in info:
-                    info['webpage_url'] = query
-                print(f"Extracted info for URL: {info.get('title', 'Unknown')} - {info.get('url', 'No URL')}")  # Debug logging
-                return info
-            else:
-                print(f"Searching for query: {query}")  # Debug logging
-                # Search query - use ytsearch
-                info = await self.extract_info(f"ytsearch:{query}", download=False)
-                
-                # Handle None response or missing entries
-                if not info:
-                    print("No search info returned")
-                    return None
-                
-                print(f"Search info received: {type(info)}")  # Debug logging
-                print(f"Info keys: {list(info.keys()) if isinstance(info, dict) else 'Not a dict'}")  # Debug logging
-                
-                if 'entries' not in info or not info['entries'] or len(info['entries']) == 0:
-                    print("No search results found in entries")
-                    return None
-                
-                print(f"Total entries found: {len(info['entries'])}")  # Debug logging
-                print(f"Entry types: {[type(entry) for entry in info['entries'][:5]]}")  # Debug logging first 5
-                
-                # Filter out None entries and find the first valid result
-                valid_entries = [entry for entry in info['entries'] if entry is not None]
-                
-                print(f"Valid entries after filtering: {len(valid_entries)}")  # Debug logging
-                
-                if not valid_entries:
-                    print("All search results are None - no valid entries found")
-                    # Try to understand why all entries are None
-                    none_count = sum(1 for entry in info['entries'] if entry is None)
-                    print(f"Found {none_count} None entries out of {len(info['entries'])} total entries")
+                print("📺 Direct URL detected, extracting info...")
+                return await self.extract_info(query)
+            
+            # For search queries, try multiple search strategies
+            search_strategies = [
+                f"ytsearch1:{query}",
+                f"ytsearch2:{query}",
+                f"ytsearch3:{query}",
+                f"ytsearch:{query}",
+            ]
+            
+            for strategy in search_strategies:
+                try:
+                    print(f"🔍 Trying search strategy: {strategy}")
                     
-                    # Check if this might be due to bot detection
-                    if none_count == len(info['entries']):
-                        print("All entries are None - likely bot detection. Trying fallback search...")
-                        fallback_result = await self.fallback_search(query)
-                        if fallback_result:
-                            print("Fallback search succeeded!")
-                            return fallback_result
-                        else:
-                            # If fallback also fails, it's likely bot detection
-                            raise Exception("YouTube is blocking requests due to bot detection. Try using a different search term or wait a few minutes before trying again.")
+                    # Use extract_info for search
+                    search_result = await self.extract_info(strategy)
                     
-                    return None
-                
-                result = valid_entries[0]
-                
-                print(f"Selected result type: {type(result)}")  # Debug logging
-                print(f"Result keys: {list(result.keys()) if isinstance(result, dict) else 'Not a dict'}")  # Debug logging
-                
-                # Double-check the result is valid
-                if not result or not result.get('id'):
-                    print("First valid search result is missing required data")
-                    print(f"Result has ID: {bool(result.get('id'))}")  # Debug logging
-                    print(f"Result ID value: {result.get('id')}")  # Debug logging
-                    return None
-                
-                # For search results, the webpage_url is the actual YouTube watch URL
-                # The 'url' field contains the direct stream URL
-                if 'webpage_url' not in result and 'id' in result:
-                    # Construct the YouTube watch URL from the video ID
-                    result['webpage_url'] = f"https://www.youtube.com/watch?v={result['id']}"
-                print(f"Found search result: {result.get('title', 'Unknown')} - Stream URL: {result.get('url', 'No URL')}")  # Debug logging
-                print(f"Original YouTube URL: {result.get('webpage_url', 'No webpage URL')}")  # Debug logging
-                return result
-                
+                    if not search_result:
+                        continue
+                    
+                    # Handle search results
+                    if 'entries' in search_result:
+                        entries = search_result['entries']
+                        if entries:
+                            # Filter out None entries
+                            valid_entries = [e for e in entries if e is not None]
+                            if valid_entries:
+                                result = valid_entries[0]
+                                print(f"✅ Found: {result.get('title', 'Unknown')}")
+                                return result
+                    
+                    # Handle direct result (sometimes search returns direct result)
+                    elif search_result.get('title'):
+                        print(f"✅ Direct result: {search_result.get('title')}")
+                        return search_result
+                    
+                except Exception as e:
+                    print(f"❌ Search strategy failed: {e}")
+                    continue
+            
+            # If all search strategies failed, try alternative search
+            return await self._alternative_search(query)
+            
         except Exception as e:
             error_msg = str(e)
-            print(f"Search error: {error_msg}")  # Debug logging
+            print(f"❌ Search failed: {error_msg}")
             
-            # Try fallback search for non-URL queries
-            if not self._is_url(query):
-                print("Trying fallback search method...")
-                fallback_result = await self.fallback_search(query)
-                if fallback_result:
-                    print("Fallback search succeeded!")
-                    return fallback_result
+            # Try alternative search as last resort
+            try:
+                return await self._alternative_search(query)
+            except:
+                pass
             
-            # Handle specific YouTube errors
-            if "Sign in to confirm" in error_msg or "bot" in error_msg.lower():
-                raise Exception("YouTube is blocking this request due to bot detection. Try using a different search term, wait a few minutes, or try a more specific query.")
+            # Provide user-friendly error messages
+            if "Sign in to confirm" in error_msg:
+                raise Exception("YouTube is currently blocking bot requests. Please try again in a few minutes or use a more specific search term.")
             elif "Private video" in error_msg:
                 raise Exception("This video is private and cannot be played.")
             elif "Video unavailable" in error_msg:
-                raise Exception("This video is not available in your region.")
-            elif "not iterable" in error_msg:
-                raise Exception("YouTube search failed. Please try a different search term or URL.")
+                raise Exception("Video is not available in your region.")
             else:
                 raise Exception(f"Search failed: {error_msg}")
     
-    def is_playlist(self, info: Dict[str, Any]) -> bool:
-        """Check if the extracted info is a playlist"""
-        return 'entries' in info and len(info.get('entries', [])) > 1
+    async def _alternative_search(self, query: str) -> Optional[Dict[str, Any]]:
+        """Alternative search method using different approach"""
+        print(f"🔄 Trying alternative search for: {query}")
+        
+        # Try with different extractors and options
+        alt_strategies = [
+            {
+                'name': 'YouTube Music',
+                'query': f"https://music.youtube.com/search?q={query.replace(' ', '+')}"
+            },
+            {
+                'name': 'Direct YouTube search',
+                'query': f"https://www.youtube.com/results?search_query={query.replace(' ', '+')}"
+            }
+        ]
+        
+        for strategy in alt_strategies:
+            try:
+                print(f"🔍 Alternative strategy: {strategy['name']}")
+                
+                # Create special options for alternative search
+                alt_options = {
+                    'default_search': None,
+                    'force_generic_extractor': True,
+                    'playlist_items': '1',
+                    'extract_flat': False
+                }
+                
+                ytdl = self._create_ytdl_instance(alt_options)
+                
+                # Try to extract
+                result = await asyncio.get_event_loop().run_in_executor(
+                    None,
+                    lambda: ytdl.extract_info(strategy['query'], download=False)
+                )
+                
+                if result:
+                    print(f"✅ Alternative search succeeded with {strategy['name']}")
+                    return result
+                    
+            except Exception as e:
+                print(f"❌ Alternative strategy '{strategy['name']}' failed: {e}")
+                continue
+        
+        print("❌ All alternative search strategies failed")
+        return None
     
     def _is_url(self, query: str) -> bool:
         """Check if the query is a URL"""
@@ -475,232 +467,57 @@ class YouTubeDownloader:
         ]
         return any(indicator in query.lower() for indicator in url_indicators)
     
-    async def fallback_search(self, query: str) -> Optional[Dict[str, Any]]:
-        """Enhanced fallback search method with multiple strategies to avoid bot detection"""
-        print(f"Trying fallback search for: {query}")
-        
-        # Try multiple fallback strategies with different approaches
-        fallback_strategies = [
-            {
-                'name': 'Mobile user agent',
-                'options': {
-                    'format': 'bestaudio/best',
-                    'quiet': True,
-                    'no_warnings': True,
-                    'default_search': 'ytsearch',
-                    'ignoreerrors': True,
-                    'sleep_interval_requests': 2,
-                    'http_headers': {
-                        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1',
-                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                        'Accept-Language': 'en-US,en;q=0.5',
-                        'Accept-Encoding': 'gzip, deflate',
-                    }
-                }
-            },
-            {
-                'name': 'Minimal extraction with delays',
-                'options': {
-                    'format': 'worst',
-                    'quiet': True,
-                    'no_warnings': True,
-                    'default_search': 'ytsearch',
-                    'ignoreerrors': True,
-                    'extractflat': True,
-                    'sleep_interval_requests': 3,
-                    'http_headers': {
-                        'User-Agent': self.user_agents[1],
-                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                        'Accept-Language': 'en-US,en;q=0.9',
-                    }
-                }
-            },
-            {
-                'name': 'Firefox with extended headers',
-                'options': {
-                    'format': 'bestaudio/best',
-                    'quiet': True,
-                    'no_warnings': True,
-                    'default_search': 'ytsearch',
-                    'ignoreerrors': True,
-                    'sleep_interval_requests': 1,
-                    'http_headers': {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:133.0) Gecko/20100101 Firefox/133.0',
-                        'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-                        'Accept-Language': 'en-US,en;q=0.5',
-                        'Accept-Encoding': 'gzip, deflate, br',
-                        'Connection': 'keep-alive',
-                        'Upgrade-Insecure-Requests': '1',
-                        'Sec-Fetch-Dest': 'document',
-                        'Sec-Fetch-Mode': 'navigate',
-                        'Sec-Fetch-Site': 'none',
-                        'Sec-Fetch-User': '?1',
-                    }
-                }
-            },
-            {
-                'name': 'Generic search with minimal footprint',
-                'options': {
-                    'format': 'bestaudio',
-                    'quiet': True,
-                    'no_warnings': True,
-                    'default_search': 'ytsearch1',  # Search for only 1 result
-                    'ignoreerrors': True,
-                    'extractflat': True,
-                    'sleep_interval_requests': 4,
-                    'http_headers': {
-                        'User-Agent': 'Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)',
-                        'Accept': '*/*',
-                    }
-                }
-            }
-        ]
-        
-        loop = asyncio.get_event_loop()
-        
-        for i, strategy in enumerate(fallback_strategies):
-            try:
-                print(f"Trying fallback strategy {i+1}/4: {strategy['name']}")
-                
-                # Add progressive delay between strategies
-                if i > 0:
-                    delay = 3 + (i * 2)  # 3, 5, 7, 9 seconds
-                    print(f"Waiting {delay} seconds before next strategy...")
-                    await asyncio.sleep(delay)
-                
-                fallback_ytdl = youtube_dl.YoutubeDL(strategy['options'])
-                
-                # Try searching with this strategy
-                info = await loop.run_in_executor(
-                    None,
-                    lambda: fallback_ytdl.extract_info(f"ytsearch1:{query}", download=False)
-                )
-                
-                if info and 'entries' in info and info['entries']:
-                    # Filter out None entries
-                    valid_entries = [entry for entry in info['entries'] if entry is not None]
-                    
-                    if valid_entries:
-                        result = valid_entries[0]
-                        if result and result.get('id'):
-                            print(f"Fallback strategy '{strategy['name']}' succeeded!")
-                            # Construct basic info
-                            return {
-                                'title': result.get('title', query),
-                                'id': result['id'],
-                                'webpage_url': f"https://www.youtube.com/watch?v={result['id']}",
-                                'url': f"https://www.youtube.com/watch?v={result['id']}",  # Will be processed later
-                                'duration': result.get('duration', 0),
-                                'uploader': result.get('uploader', 'Unknown'),
-                            }
-                        else:
-                            print(f"Fallback strategy '{strategy['name']}' returned invalid result")
-                    else:
-                        print(f"Fallback strategy '{strategy['name']}' returned no valid entries")
-                else:
-                    print(f"Fallback strategy '{strategy['name']}' returned no info or entries")
-                
-            except Exception as e:
-                print(f"Fallback strategy '{strategy['name']}' failed: {e}")
-                continue
-        
-        print("All fallback strategies failed")
-        return None
+    def is_playlist(self, info: Dict[str, Any]) -> bool:
+        """Check if the extracted info is a playlist"""
+        return 'entries' in info and len(info.get('entries', [])) > 1
     
     async def get_audio_source(self, url: str) -> discord.AudioSource:
-        """Get audio source without FFmpeg using direct streaming"""
-        print(f"Getting audio source for: {url}")  # Debug logging
+        """Get audio source with enhanced stream URL handling"""
+        print(f"🎵 Creating audio source for: {url}")
         
         try:
-            # Always extract fresh info to get the best audio stream
+            # Check if this is already a direct stream URL
             if 'googlevideo.com' in url:
-                # This is already a direct stream URL, but we need to check if it's expired
-                import time
-                from urllib.parse import urlparse, parse_qs
-                
-                try:
-                    parsed_url = urlparse(url)
-                    query_params = parse_qs(parsed_url.query)
-                    
-                    if 'expire' in query_params:
-                        expire_time = int(query_params['expire'][0])
-                        current_time = int(time.time())
-                        
-                        print(f"Stream URL expire time: {expire_time}, current time: {current_time}")
-                        
-                        if current_time >= expire_time:
-                            print("Stream URL has expired")
-                            raise Exception("Stream URL has expired, need to refresh from original YouTube URL")
-                        else:
-                            print("Stream URL is still valid, using direct streaming")
-                            return self._create_direct_audio_source(url)
-                    else:
-                        print("No expire parameter, using direct streaming")
-                        return self._create_direct_audio_source(url)
-                except Exception as e:
-                    print(f"Error checking URL expiration: {e}")
-                    raise Exception("Stream URL has expired, need to refresh from original YouTube URL")
-            else:
-                # This is a YouTube watch URL, extract the best audio stream
-                print(f"Extracting audio stream from YouTube URL: {url}")
-                loop = asyncio.get_event_loop()
-                info = await loop.run_in_executor(
-                    None, 
-                    lambda: self.ytdl.extract_info(url, download=False)
-                )
-                
-                if not info:
-                    raise Exception("Could not extract audio info")
-                
-                # Get the best audio URL
-                audio_url = info.get('url')
-                if not audio_url:
-                    raise Exception("No audio URL found")
-                
-                print(f"Extracted audio stream URL: {audio_url}")
-                return self._create_direct_audio_source(audio_url)
-                
-        except Exception as e:
-            raise Exception(f"Error creating audio source: {str(e)}")
-    
-    def _create_direct_audio_source(self, url: str) -> discord.AudioSource:
-        """Create audio source using optimized streaming approach"""
-        print(f"Creating optimized audio source")  # Debug logging
-        
-        try:
-            # Check if this is a WebM Opus stream (best for Discord)
-            if 'mime=audio%2Fwebm' in url and 'codecs=opus' in url:
-                print("Detected WebM Opus stream - using optimized playback")
-                # For WebM Opus, we can use minimal FFmpeg options
-                ffmpeg_options = {
-                    'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -nostdin',
-                    'options': '-vn'  # No video, minimal processing for Opus
-                }
-            else:
-                print("Using standard audio processing")
-                # For other formats, use standard options
-                ffmpeg_options = self.ffmpeg_options
+                print("🎯 Direct stream URL detected")
+                return self._create_audio_source(url)
             
-            # Create the audio source
-            return discord.FFmpegPCMAudio(url, before_options=ffmpeg_options['before_options'], options=ffmpeg_options['options'])
+            # Extract fresh stream URL
+            print("🔄 Extracting fresh stream URL...")
+            info = await self.extract_info(url)
+            
+            if not info:
+                raise Exception("Could not extract stream information")
+            
+            stream_url = info.get('url')
+            if not stream_url:
+                raise Exception("No stream URL found")
+            
+            print(f"✅ Got stream URL: {stream_url[:100]}...")
+            return self._create_audio_source(stream_url)
             
         except Exception as e:
-            print(f"Error creating direct audio source: {e}")
-            # Fallback to basic audio source
-            return self._create_audio_source(url)
+            raise Exception(f"Failed to create audio source: {str(e)}")
     
     def _create_audio_source(self, url: str) -> discord.AudioSource:
-        """Create audio source with volume control"""
-        print(f"Creating audio source with volume control")  # Debug logging
+        """Create audio source with optimized settings"""
+        print("🎵 Creating Discord audio source...")
+        
+        ffmpeg_options = {
+            'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -nostdin',
+            'options': '-vn -filter:a "volume=0.5"'
+        }
         
         try:
-            # Create FFmpeg audio source
-            source = discord.FFmpegPCMAudio(url, before_options=self.ffmpeg_options['before_options'], options=self.ffmpeg_options['options'])
+            # Create audio source with volume control
+            source = discord.FFmpegPCMAudio(
+                url, 
+                before_options=ffmpeg_options['before_options'],
+                options=ffmpeg_options['options']
+            )
             
-            # Add volume control
             return discord.PCMVolumeTransformer(source, volume=0.5)
             
         except Exception as e:
-            print(f"Error creating audio source: {e}")
-            # Last resort - basic audio source without volume control
-            return discord.FFmpegPCMAudio(url, before_options=self.ffmpeg_options['before_options'], options=self.ffmpeg_options['options']) 
+            print(f"❌ Error creating audio source: {e}")
+            # Fallback to basic audio source
+            return discord.FFmpegPCMAudio(url) 
