@@ -118,9 +118,9 @@ class YouTubeDownloader:
             'format': 'bestaudio[ext=webm]/bestaudio/best',
             'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
             'restrictfilenames': True,
-            'noplaylist': True,
+            'noplaylist': False,  # Enable playlist support
             'nocheckcertificate': True,
-            'ignoreerrors': False,
+            'ignoreerrors': True,  # Continue on errors in playlists
             'logtostderr': False,
             'quiet': True,
             'no_warnings': True,
@@ -130,6 +130,7 @@ class YouTubeDownloader:
             'age_limit': 99,
             'geo_bypass': True,
             'cookiefile': None,
+            'playlistend': 50,  # Limit playlist to first 50 songs
         }
         
         self.ffmpeg_options = {
@@ -169,6 +170,10 @@ class YouTubeDownloader:
                 return None
         except Exception as e:
             raise Exception(f"Search error: {str(e)}")
+    
+    def is_playlist(self, info: Dict[str, Any]) -> bool:
+        """Check if the extracted info is a playlist"""
+        return 'entries' in info and len(info.get('entries', [])) > 1
     
     def _is_url(self, query: str) -> bool:
         """Check if the query is a URL"""

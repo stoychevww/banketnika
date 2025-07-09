@@ -176,42 +176,13 @@ class Music(commands.Cog):
                 await search_msg.edit(embed=embed)
                 return
             
-            # Check song length
-            if song_info.get('duration', 0) > Config.MAX_SONG_LENGTH:
-                embed = MusicUtils.create_music_embed(
-                    "❌ Песента е твърде дълга",
-                    f"Максимална дължина: {Config.MAX_SONG_LENGTH // 60} минути",
-                    Config.COLOR_ERROR
-                )
-                await search_msg.edit(embed=embed)
+            # Check if it's a playlist
+            if self.downloader.is_playlist(song_info):
+                await self._handle_playlist(ctx, song_info, search_msg, player)
                 return
             
-            # Prepare song info
-            song_data = {
-                'title': song_info['title'],
-                'url': song_info['url'],
-                'duration': song_info.get('duration', 0),
-                'uploader': song_info.get('uploader', 'Unknown'),
-                'thumbnail': song_info.get('thumbnail'),
-                'requester': ctx.author
-            }
-            
-            # Add to queue
-            await player.add_to_queue(song_data)
-            
-            # If not currently playing, start playing
-            if not player.is_playing:
-                await player.play_next()
-                embed = MusicUtils.create_now_playing_embed(song_data)
-                await search_msg.edit(embed=embed)
-            else:
-                # Song added to queue
-                embed = MusicUtils.create_music_embed(
-                    "✅ Добавена в опашката",
-                    f"**{song_data['title']}**\nПозиция в опашката: {len(player.queue)}",
-                    Config.COLOR_SUCCESS
-                )
-                await search_msg.edit(embed=embed)
+            # Single song handling
+            await self._handle_single_song(ctx, song_info, search_msg, player)
         
         except Exception as e:
             print(f"Error in play command: {str(e)}")  # Debug logging
@@ -452,6 +423,171 @@ class Music(commands.Cog):
         
         # Try to play the song
         await self.play(ctx, query=random_song)
+    
+    @commands.command(name='playlist', aliases=['pl', 'плейлист'])
+    async def playlist(self, ctx, *, url: str):
+        """Add a playlist to the queue"""
+        if not await self.ensure_voice_connection(ctx):
+            return
+        
+        # Check if it's a URL
+        if not self.downloader._is_url(url):
+            embed = MusicUtils.create_music_embed(
+                "❌ Невалидно URL",
+                "Моля предоставете валидно URL на плейлист",
+                Config.COLOR_ERROR
+            )
+            await ctx.send(embed=embed)
+            return
+        
+        player = self.get_player(ctx.guild.id)
+        
+        # Show loading message
+        loading_embed = MusicUtils.create_music_embed(
+            "🔄 Зареждане на плейлист...",
+            f"Зареждам плейлист от: **{url}**",
+            Config.COLOR_WARNING
+        )
+        loading_msg = await ctx.send(embed=loading_embed)
+        
+        try:
+            # Extract playlist info
+            playlist_info = await self.downloader.search_youtube(url)
+            
+            if not playlist_info:
+                embed = MusicUtils.create_music_embed(
+                    "❌ Не мога да заредя плейлиста",
+                    "Моля проверете дали URL-то е валидно",
+                    Config.COLOR_ERROR
+                )
+                await loading_msg.edit(embed=embed)
+                return
+            
+            # Handle the playlist
+            await self._handle_playlist(ctx, playlist_info, loading_msg, player)
+            
+        except Exception as e:
+            print(f"Error loading playlist: {str(e)}")
+            embed = MusicUtils.create_music_embed(
+                "❌ Грешка при зареждане",
+                f"Възникна грешка при зареждане на плейлиста: {str(e)}",
+                Config.COLOR_ERROR
+            )
+            await loading_msg.edit(embed=embed)
+    
+    async def _handle_single_song(self, ctx, song_info, search_msg, player):
+        """Handle adding a single song to the queue"""
+        # Check song length
+        if song_info.get('duration', 0) > Config.MAX_SONG_LENGTH:
+            embed = MusicUtils.create_music_embed(
+                "❌ Песента е твърде дълга",
+                f"Максимална дължина: {Config.MAX_SONG_LENGTH // 60} минути",
+                Config.COLOR_ERROR
+            )
+            await search_msg.edit(embed=embed)
+            return
+        
+        # Prepare song info
+        song_data = {
+            'title': song_info['title'],
+            'url': song_info['url'],
+            'duration': song_info.get('duration', 0),
+            'uploader': song_info.get('uploader', 'Unknown'),
+            'thumbnail': song_info.get('thumbnail'),
+            'requester': ctx.author
+        }
+        
+        # Add to queue
+        await player.add_to_queue(song_data)
+        
+        # If not currently playing, start playing
+        if not player.is_playing:
+            await player.play_next()
+            embed = MusicUtils.create_now_playing_embed(song_data)
+            await search_msg.edit(embed=embed)
+        else:
+            # Song added to queue
+            embed = MusicUtils.create_music_embed(
+                "✅ Добавена в опашката",
+                f"**{song_data['title']}**\nПозиция в опашката: {len(player.queue)}",
+                Config.COLOR_SUCCESS
+            )
+            await search_msg.edit(embed=embed)
+    
+    async def _handle_playlist(self, ctx, playlist_info, search_msg, player):
+        """Handle adding a playlist to the queue"""
+        entries = playlist_info.get('entries', [])
+        playlist_title = playlist_info.get('title', 'Неизвестен плейлист')
+        
+        if not entries:
+            embed = MusicUtils.create_music_embed(
+                "❌ Празен плейлист",
+                "Плейлистът е празен или не може да бъде зареден",
+                Config.COLOR_ERROR
+            )
+            await search_msg.edit(embed=embed)
+            return
+        
+        # Filter out songs that are too long and prepare song data
+        valid_songs = []
+        skipped_songs = 0
+        
+        for entry in entries:
+            if entry.get('duration', 0) > Config.MAX_SONG_LENGTH:
+                skipped_songs += 1
+                continue
+            
+            song_data = {
+                'title': entry['title'],
+                'url': entry['url'],
+                'duration': entry.get('duration', 0),
+                'uploader': entry.get('uploader', 'Unknown'),
+                'thumbnail': entry.get('thumbnail'),
+                'requester': ctx.author
+            }
+            valid_songs.append(song_data)
+        
+        # Check if we have valid songs
+        if not valid_songs:
+            embed = MusicUtils.create_music_embed(
+                "❌ Няма валидни песни",
+                "Всички песни в плейлиста са твърде дълги или недостъпни",
+                Config.COLOR_ERROR
+            )
+            await search_msg.edit(embed=embed)
+            return
+        
+        # Check if adding all songs would exceed queue limit
+        if len(player.queue) + len(valid_songs) > Config.MAX_QUEUE_SIZE:
+            max_songs = Config.MAX_QUEUE_SIZE - len(player.queue)
+            valid_songs = valid_songs[:max_songs]
+            
+            embed = MusicUtils.create_music_embed(
+                "⚠️ Плейлист съкратен",
+                f"Плейлистът е съкратен до {max_songs} песни поради ограничения на опашката",
+                Config.COLOR_WARNING
+            )
+            await search_msg.edit(embed=embed)
+            await asyncio.sleep(3)  # Show warning for 3 seconds
+        
+        # Add all valid songs to queue
+        for song_data in valid_songs:
+            await player.add_to_queue(song_data)
+        
+        # Create playlist added embed
+        embed = MusicUtils.create_music_embed(
+            "📋 Плейлист добавен",
+            f"**{playlist_title}**\n"
+            f"✅ Добавени: {len(valid_songs)} песни\n"
+            f"⏭️ Прескочени: {skipped_songs} песни (твърде дълги)\n"
+            f"🎵 Позиция в опашката: {len(player.queue) - len(valid_songs) + 1}-{len(player.queue)}",
+            Config.COLOR_SUCCESS
+        )
+        await search_msg.edit(embed=embed)
+        
+        # If not currently playing, start playing
+        if not player.is_playing:
+            await player.play_next()
 
 async def setup(bot):
     await bot.add_cog(Music(bot)) 

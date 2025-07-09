@@ -42,7 +42,8 @@ class General(commands.Cog):
             
             # Music commands
             music_commands = [
-                f"`{Config.BOT_PREFIX}play <песен>` - Пусни песен",
+                f"`{Config.BOT_PREFIX}play <песен/URL>` - Пусни песен или URL",
+                f"`{Config.BOT_PREFIX}playlist <URL>` - Добави плейлист",
                 f"`{Config.BOT_PREFIX}pause` - Пауза",
                 f"`{Config.BOT_PREFIX}resume` - Продължи",
                 f"`{Config.BOT_PREFIX}skip` - Прескочи",
