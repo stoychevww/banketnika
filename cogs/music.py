@@ -6,6 +6,8 @@ from typing import Optional, Dict, Any, List
 from collections import deque
 from config import Config
 from utils.music_utils import MusicUtils, YouTubeDownloader
+from utils.cleanup import CleanupManager
+from utils.alternative_player import SimpleAudioPlayer
 
 class MusicPlayer:
     """Music player class to handle queue and playback"""
@@ -22,6 +24,7 @@ class MusicPlayer:
         self.repeat_mode = False
         self.shuffle_mode = False
         self.downloader = YouTubeDownloader()
+        self.alternative_player = SimpleAudioPlayer()
         
     async def add_to_queue(self, song_info: Dict[str, Any]):
         """Add a song to the queue"""
@@ -32,40 +35,99 @@ class MusicPlayer:
     
     async def play_next(self):
         """Play the next song in queue"""
+        print(f"play_next called - Queue length: {len(self.queue)}, Is playing: {self.is_playing}, Repeat mode: {self.repeat_mode}")  # Debug logging
+        
         if not self.queue and not self.repeat_mode:
+            print("No songs in queue and repeat mode off - stopping playback")  # Debug logging
             self.current_song = None
             self.is_playing = False
             return
         
         if self.repeat_mode and self.current_song:
             next_song = self.current_song
+            print(f"Repeat mode: Playing current song again - {next_song['title']}")  # Debug logging
         else:
             if self.shuffle_mode and len(self.queue) > 1:
                 # Shuffle the queue
                 queue_list = list(self.queue)
                 random.shuffle(queue_list)
                 self.queue = deque(queue_list)
+                print("Shuffled queue")  # Debug logging
             
             next_song = self.queue.popleft()
             self.current_song = next_song
+            print(f"Playing next song from queue: {next_song['title']} - {next_song['url']}")  # Debug logging
         
         try:
-            # Get the audio source
-            audio_source = self.downloader.get_audio_source(next_song['url'])
+            print(f"Getting audio source for: {next_song['url']}")  # Debug logging
+            
+            # Try to get audio source using alternative player
+            try:
+                audio_source = await self.alternative_player.create_source(next_song['url'])
+            except Exception as e:
+                if "expired" in str(e).lower() or "403" in str(e) or "forbidden" in str(e).lower():
+                    print(f"Stream URL expired, refreshing from original URL: {next_song.get('original_url', next_song['url'])}")
+                    # Get fresh stream URL from original YouTube URL
+                    fresh_info = await self.downloader.search_youtube(next_song.get('original_url', next_song['url']))
+                    if fresh_info:
+                        # Update the song data with fresh URL
+                        next_song['url'] = fresh_info['url']
+                        self.current_song = next_song  # Update current song with fresh URL
+                        print(f"Got fresh stream URL: {fresh_info['url']}")
+                        # Use the fresh stream URL with alternative player
+                        audio_source = await self.alternative_player.create_source(fresh_info['url'])
+                    else:
+                        raise Exception("Could not refresh expired stream URL")
+                else:
+                    raise e
+            
+            print(f"Audio source created successfully")  # Debug logging
             
             # Play the audio
-            if self.voice_client:
-                self.voice_client.play(
-                    audio_source,
-                    after=lambda e: self.bot.loop.create_task(self.play_next()) if not e else print(f"Player error: {e}")
-                )
-            
-            self.is_playing = True
-            self.is_paused = False
+            if self.voice_client and self.voice_client.is_connected():
+                print("Voice client connected, starting playback")  # Debug logging
+                def after_playing(error):
+                    if error:
+                        print(f"Player error: {error}")
+                    else:
+                        print("Song finished playing")  # Debug logging
+                    # Schedule the next song
+                    CleanupManager.safe_schedule_coroutine(self.play_next(), self.bot.loop)
+                
+                self.voice_client.play(audio_source, after=after_playing)
+                self.is_playing = True
+                self.is_paused = False
+                self._retry_count = 0  # Reset retry counter on successful playback
+                print("Playback started successfully")  # Debug logging
+            else:
+                print("Voice client not connected, cannot play audio")
+                self.is_playing = False
             
         except Exception as e:
             print(f"Error playing song: {e}")
-            await self.play_next()
+            
+            # Handle specific FFmpeg errors
+            error_msg = str(e).lower()
+            if any(keyword in error_msg for keyword in ['ffmpeg', 'connection', 'network', 'timeout']):
+                print("Network or FFmpeg error detected, waiting before retry")
+                await asyncio.sleep(2)  # Wait 2 seconds before retry
+            
+            # Try to play next song after error, but limit retries
+            if not hasattr(self, '_retry_count'):
+                self._retry_count = 0
+            
+            if self._retry_count < 3:  # Max 3 retries
+                self._retry_count += 1
+                print(f"Retrying playback (attempt {self._retry_count}/3)")
+                try:
+                    await self.play_next()
+                except Exception as next_error:
+                    print(f"Error in play_next after error: {next_error}")
+                    self.is_playing = False
+            else:
+                print("Max retries reached, stopping playback")
+                self._retry_count = 0
+                self.is_playing = False
     
     def pause(self):
         """Pause the current song"""
@@ -85,6 +147,8 @@ class MusicPlayer:
             self.voice_client.stop()
             self.is_playing = False
             self.is_paused = False
+        # Clean up alternative player resources
+        self.alternative_player.cleanup()
     
     def skip(self):
         """Skip the current song"""
@@ -111,6 +175,13 @@ class Music(commands.Cog):
         self.bot = bot
         self.players = {}
         self.downloader = YouTubeDownloader()
+        
+        # Check if FFmpeg is properly installed
+        if not MusicUtils.check_ffmpeg():
+            print("⚠️  WARNING: FFmpeg is not properly installed or configured!")
+            print("Using alternative audio player with minimal FFmpeg requirements.")
+        else:
+            print("✅ FFmpeg is properly installed - using optimized alternative player")
     
     def get_player(self, guild_id: int) -> MusicPlayer:
         """Get or create a music player for the guild"""
@@ -380,10 +451,8 @@ class Music(commands.Cog):
         player = self.get_player(ctx.guild.id)
         
         if player.voice_client:
-            player.voice_client.stop()
-            player.voice_client = None
-            player.stop()
-            player.clear_queue()
+            # Use cleanup manager for safe disconnection
+            await CleanupManager.cleanup_music_player(player)
             
             embed = MusicUtils.create_music_embed(
                 "👋 Довиждане",
@@ -477,6 +546,8 @@ class Music(commands.Cog):
     
     async def _handle_single_song(self, ctx, song_info, search_msg, player):
         """Handle adding a single song to the queue"""
+        print(f"_handle_single_song called for: {song_info.get('title', 'Unknown')}")  # Debug logging
+        
         # Check song length
         if song_info.get('duration', 0) > Config.MAX_SONG_LENGTH:
             embed = MusicUtils.create_music_embed(
@@ -491,21 +562,48 @@ class Music(commands.Cog):
         song_data = {
             'title': song_info['title'],
             'url': song_info['url'],
+            'original_url': song_info.get('webpage_url', song_info['url']),  # Store original YouTube URL
             'duration': song_info.get('duration', 0),
             'uploader': song_info.get('uploader', 'Unknown'),
             'thumbnail': song_info.get('thumbnail'),
             'requester': ctx.author
         }
         
+        print(f"Adding song to queue: {song_data['title']}")  # Debug logging
+        
         # Add to queue
         await player.add_to_queue(song_data)
         
         # If not currently playing, start playing
         if not player.is_playing:
-            await player.play_next()
-            embed = MusicUtils.create_now_playing_embed(song_data)
-            await search_msg.edit(embed=embed)
+            print("Player not playing, starting playback")  # Debug logging
+            try:
+                await player.play_next()
+                print("play_next completed successfully")  # Debug logging
+                
+                # Check if playback actually started
+                if player.is_playing:
+                    print("Playback started, updating message with now playing")  # Debug logging
+                    embed = MusicUtils.create_now_playing_embed(song_data)
+                    await search_msg.edit(embed=embed)
+                else:
+                    print("Playback failed to start")  # Debug logging
+                    embed = MusicUtils.create_music_embed(
+                        "❌ Грешка при възпроизвеждане",
+                        f"Не мога да пусна песента: **{song_data['title']}**",
+                        Config.COLOR_ERROR
+                    )
+                    await search_msg.edit(embed=embed)
+            except Exception as e:
+                print(f"Error in play_next: {e}")  # Debug logging
+                embed = MusicUtils.create_music_embed(
+                    "❌ Грешка при възпроизвеждане",
+                    f"Възникна грешка при пускане на песента: {str(e)}",
+                    Config.COLOR_ERROR
+                )
+                await search_msg.edit(embed=embed)
         else:
+            print("Player already playing, adding to queue")  # Debug logging
             # Song added to queue
             embed = MusicUtils.create_music_embed(
                 "✅ Добавена в опашката",
@@ -540,6 +638,7 @@ class Music(commands.Cog):
             song_data = {
                 'title': entry['title'],
                 'url': entry['url'],
+                'original_url': entry.get('webpage_url', entry['url']),  # Store original YouTube URL
                 'duration': entry.get('duration', 0),
                 'uploader': entry.get('uploader', 'Unknown'),
                 'thumbnail': entry.get('thumbnail'),

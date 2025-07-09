@@ -12,6 +12,7 @@ import sys
 import os
 from config import Config
 from utils.music_utils import MusicUtils
+from utils.cleanup import CleanupManager
 
 # Configure logging
 logging.basicConfig(
@@ -159,16 +160,26 @@ class Banketnika(commands.Bot):
         # Check if bot is alone in the channel
         if len(voice_client.channel.members) == 1:  # Only the bot
             logger.info(f"Bot is alone in voice channel {voice_client.channel.name}, disconnecting...")
-            await voice_client.disconnect()
             
-            # Clean up the music player
+            # Clean up using cleanup manager
             music_cog = self.get_cog('Music')
             if music_cog and hasattr(music_cog, 'players'):
-                if member.guild.id in music_cog.players:
-                    player = music_cog.players[member.guild.id]
-                    player.stop()
-                    player.clear_queue()
-                    player.voice_client = None
+                players = getattr(music_cog, 'players', {})
+                if member.guild.id in players:
+                    player = players[member.guild.id]
+                    await CleanupManager.cleanup_music_player(player)
+    
+    async def close(self):
+        """Properly close the bot and clean up resources"""
+        logger.info("Shutting down bot...")
+        
+        # Clean up all music players using cleanup manager
+        music_cog = self.get_cog('Music')
+        if music_cog:
+            await CleanupManager.cleanup_all_players(music_cog)
+        
+        # Close the bot connection
+        await super().close()
 
 async def main():
     """Main function to run the bot"""
