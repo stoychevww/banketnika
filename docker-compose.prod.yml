@@ -1,0 +1,48 @@
+# Production overrides for docker-compose.yml
+# Usage: docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+
+version: '3.8'
+
+services:
+  banketnika-bot:
+    # Production resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'
+          memory: 2G
+        reservations:
+          cpus: '1.0'
+          memory: 512M
+    
+    # Enhanced logging for production
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+        compress: "true"
+    
+    # Production environment variables
+    environment:
+      - LOG_LEVEL=WARNING
+      - DEBUG=False
+      - ENABLE_ALTERNATIVE_PLAYER=True
+    
+    # More aggressive health checks for production
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      start_period: 60s
+    
+    # Production volumes with better permissions
+    volumes:
+      - ./logs:/app/logs:rw
+      - ./temp:/app/temp:rw
+      - ./config:/app/config:ro
+      - /etc/localtime:/etc/localtime:ro  # Sync timezone
+    
+    # Production restart policy
+    restart: always 

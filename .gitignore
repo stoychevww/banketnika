@@ -5,6 +5,10 @@
 .env.test.local
 .env.production.local
 
+# Docker
+.dockerignore
+docker-compose.override.yml
+
 # mine
 2021.12.17
 2025.5.5

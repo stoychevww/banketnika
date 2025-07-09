@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  banketnika-bot:
+    build: .
+    container_name: banketnika-discord-bot
+    restart: unless-stopped
+    
+    # Environment variables
+    env_file:
+      - .env
+    
+    # Volumes for persistent data
+    volumes:
+      - ./logs:/app/logs
+      - ./temp:/app/temp
+      - ./config:/app/config:ro  # Read-only config
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 1G
+        reservations:
+          cpus: '0.5'
+          memory: 256M
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "python", "-c", "import sys; sys.exit(0)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+    
+    # Network configuration
+    networks:
+      - banketnika-network
+
+# Optional: Add a network for isolation
+networks:
+  banketnika-network:
+    driver: bridge
+
+# Optional: Add volumes for persistent data
+volumes:
+  bot-logs:
+    driver: local
+  bot-temp:
+    driver: local 
