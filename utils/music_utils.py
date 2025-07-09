@@ -142,6 +142,13 @@ class YouTubeDownloader:
     """YouTube downloader utility class"""
     
     def __init__(self):
+        # Browser user agents for better compatibility
+        self.user_agents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        ]
+        
         self.ytdl_format_options = {
             'format': 'bestaudio[ext=webm]/bestaudio[ext=m4a]/bestaudio/best',
             'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
@@ -161,6 +168,17 @@ class YouTubeDownloader:
             'playlistend': 50,  # Limit playlist to first 50 songs
             'prefer_ffmpeg': False,  # Disable FFmpeg preference
             'postprocessors': [],  # No post-processing
+            # Cookie-based anti-bot protection will be set up in _setup_browser_cookies()
+            'http_headers': {
+                'User-Agent': self.user_agents[0]  # Use latest Chrome user agent
+            },
+            # Additional YouTube-specific options
+            'extractor_args': {
+                'youtube': {
+                    'skip': ['hls', 'dash'],
+                    'player_skip': ['configs'],
+                }
+            },
         }
         
         self.ffmpeg_options = {
@@ -168,21 +186,123 @@ class YouTubeDownloader:
             'options': '-vn -filter:a "volume=0.5"'
         }
         
+        # Initialize with default options
         self.ytdl = yt_dlp.YoutubeDL(self.ytdl_format_options)
+        self._setup_browser_cookies()
     
-    async def extract_info(self, url: str, download: bool = False) -> Dict[str, Any]:
-        """Extract information from YouTube URL"""
+    def _setup_browser_cookies(self):
+        """Setup enhanced YouTube access without relying on browser cookies"""
+        print("Setting up enhanced YouTube access...")
+        
+        # Skip cookie loading due to common DPAPI issues on Windows
+        # Instead use the most effective header-based approach
+        print("⚠️  Skipping browser cookies due to compatibility issues")
+        print("Using advanced header-based approach for YouTube access")
+        
+        # Remove any cookie settings
+        self.ytdl_format_options.pop('cookiesfrombrowser', None)
+        
+        # Enhanced headers that mimic a real browser session
+        self.ytdl_format_options['http_headers'].update({
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'DNT': '1',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Sec-Fetch-Dest': 'document',
+            'Sec-Fetch-Mode': 'navigate',
+            'Sec-Fetch-Site': 'none',
+            'Sec-Fetch-User': '?1',
+            'Cache-Control': 'max-age=0',
+            'sec-ch-ua': '"Not_A Brand";v="8", "Chromium";v="120", "Google Chrome";v="120"',
+            'sec-ch-ua-mobile': '?0',
+            'sec-ch-ua-platform': '"Windows"',
+        })
+        
+        # Advanced YouTube-specific workarounds
+        self.ytdl_format_options['extractor_args']['youtube'].update({
+            'player_client': ['web', 'android', 'ios'],
+            'skip': ['hls', 'dash'],
+            'player_skip': ['configs'],
+        })
+        
+        # Additional anti-detection measures
+        self.ytdl_format_options.update({
+            'sleep_interval': 1,  # Add delays between requests
+            'max_sleep_interval': 3,
+            'sleep_interval_subtitles': 1,
+        })
+        
+        self.ytdl = yt_dlp.YoutubeDL(self.ytdl_format_options)
+        print("✅ Enhanced YouTube access configured successfully")
+    
+    async def extract_info(self, url: str, download: bool = False) -> Optional[Dict[str, Any]]:
+        """Extract information from YouTube URL with retry logic"""
         loop = asyncio.get_event_loop()
-        try:
-            data = await loop.run_in_executor(
-                None, 
-                lambda: self.ytdl.extract_info(url, download=download)
-            )
-            if data is None:
-                raise Exception("No data returned from YouTube")
-            return data
-        except Exception as e:
-            raise Exception(f"Error extracting info: {str(e)}")
+        
+        # Try multiple times with different configurations
+        for attempt in range(3):
+            try:
+                print(f"Extraction attempt {attempt + 1}/3 for: {url}")
+                
+                # For each attempt, try with slightly different options
+                if attempt == 1:
+                    # Second attempt: different user agent + more aggressive bypass
+                    self.ytdl.params.update({
+                        'http_headers': {
+                            'User-Agent': self.user_agents[1]  # Firefox user agent
+                        },
+                        'extractor_args': {
+                            'youtube': {
+                                'skip': ['hls', 'dash', 'translated_subs'],
+                                'player_skip': ['configs', 'webpage', 'js'],
+                            }
+                        }
+                    })
+                elif attempt == 2:
+                    # Third attempt: Safari user agent + minimal extraction
+                    self.ytdl.params.update({
+                        'format': 'worst',
+                        'http_headers': {
+                            'User-Agent': self.user_agents[2]  # Safari user agent
+                        },
+                        'extractor_args': {'youtube': {'skip': ['hls', 'dash']}},
+                    })
+                
+                data = await loop.run_in_executor(
+                    None, 
+                    lambda: self.ytdl.extract_info(url, download=download)
+                )
+                
+                if data is None:
+                    print(f"No data returned from YouTube on attempt {attempt + 1}")
+                    if attempt == 2:  # Last attempt
+                        return None
+                    continue
+                
+                print(f"Successfully extracted info on attempt {attempt + 1}")
+                return data
+                
+            except Exception as e:
+                error_msg = str(e)
+                print(f"Attempt {attempt + 1} failed: {error_msg}")
+                
+                if attempt == 2:  # Last attempt
+                    # Re-raise with better error message
+                    if "Sign in to confirm" in error_msg:
+                        raise Exception("YouTube anti-bot protection detected. Try a different video or search term.")
+                    elif "Private video" in error_msg:
+                        raise Exception("This video is private.")
+                    elif "Video unavailable" in error_msg:
+                        raise Exception("Video is not available.")
+                    else:
+                        raise Exception(f"Failed to extract video info: {error_msg}")
+                
+                # Wait before retry
+                await asyncio.sleep(1)
+        
+        return None
     
     async def search_youtube(self, query: str) -> Optional[Dict[str, Any]]:
         """Search YouTube for a query or extract info from URL"""
@@ -194,6 +314,12 @@ class YouTubeDownloader:
                 print(f"Detected URL: {query}")  # Debug logging
                 # Direct URL - extract info directly
                 info = await self.extract_info(query, download=False)
+                
+                # Handle None response
+                if not info:
+                    print("No info extracted from URL")
+                    return None
+                
                 # Ensure we have the webpage_url for later refreshing
                 if 'webpage_url' not in info:
                     info['webpage_url'] = query
@@ -203,22 +329,55 @@ class YouTubeDownloader:
                 print(f"Searching for query: {query}")  # Debug logging
                 # Search query - use ytsearch
                 info = await self.extract_info(f"ytsearch:{query}", download=False)
-                if info and 'entries' in info and len(info['entries']) > 0:
-                    result = info['entries'][0]
-                    # For search results, the webpage_url is the actual YouTube watch URL
-                    # The 'url' field contains the direct stream URL
-                    if 'webpage_url' not in result and 'id' in result:
-                        # Construct the YouTube watch URL from the video ID
-                        result['webpage_url'] = f"https://www.youtube.com/watch?v={result['id']}"
-                    print(f"Found search result: {result.get('title', 'Unknown')} - Stream URL: {result.get('url', 'No URL')}")  # Debug logging
-                    print(f"Original YouTube URL: {result.get('webpage_url', 'No webpage URL')}")  # Debug logging
-                    return result
-                else:
-                    print("No search results found")  # Debug logging
+                
+                # Handle None response or missing entries
+                if not info:
+                    print("No search info returned")
                     return None
+                
+                if 'entries' not in info or not info['entries'] or len(info['entries']) == 0:
+                    print("No search results found in entries")
+                    return None
+                
+                result = info['entries'][0]
+                
+                # Handle None result
+                if not result:
+                    print("First search result is None")
+                    return None
+                
+                # For search results, the webpage_url is the actual YouTube watch URL
+                # The 'url' field contains the direct stream URL
+                if 'webpage_url' not in result and 'id' in result:
+                    # Construct the YouTube watch URL from the video ID
+                    result['webpage_url'] = f"https://www.youtube.com/watch?v={result['id']}"
+                print(f"Found search result: {result.get('title', 'Unknown')} - Stream URL: {result.get('url', 'No URL')}")  # Debug logging
+                print(f"Original YouTube URL: {result.get('webpage_url', 'No webpage URL')}")  # Debug logging
+                return result
+                
         except Exception as e:
-            print(f"Search error: {str(e)}")  # Debug logging
-            raise Exception(f"Search error: {str(e)}")
+            error_msg = str(e)
+            print(f"Search error: {error_msg}")  # Debug logging
+            
+            # Try fallback search for non-URL queries
+            if not self._is_url(query):
+                print("Trying fallback search method...")
+                fallback_result = await self.fallback_search(query)
+                if fallback_result:
+                    print("Fallback search succeeded!")
+                    return fallback_result
+            
+            # Handle specific YouTube errors
+            if "Sign in to confirm" in error_msg or "bot" in error_msg.lower():
+                raise Exception("YouTube is blocking this request. The video may be age-restricted or require authentication.")
+            elif "Private video" in error_msg:
+                raise Exception("This video is private and cannot be played.")
+            elif "Video unavailable" in error_msg:
+                raise Exception("This video is not available in your region.")
+            elif "not iterable" in error_msg:
+                raise Exception("YouTube search failed. Please try a different search term or URL.")
+            else:
+                raise Exception(f"Search failed: {error_msg}")
     
     def is_playlist(self, info: Dict[str, Any]) -> bool:
         """Check if the extracted info is a playlist"""
@@ -232,6 +391,56 @@ class YouTubeDownloader:
             'soundcloud.com', 'spotify.com'
         ]
         return any(indicator in query.lower() for indicator in url_indicators)
+    
+    async def fallback_search(self, query: str) -> Optional[Dict[str, Any]]:
+        """Fallback search method when main search fails"""
+        try:
+            print(f"Trying fallback search for: {query}")
+            
+            # Create a new ytdl instance with minimal options + cookies
+            fallback_options = {
+                'format': 'bestaudio/best',
+                'quiet': True,
+                'no_warnings': True,
+                'default_search': 'ytsearch',
+                'ignoreerrors': True,
+                'extractflat': True,  # Minimal extraction
+                'http_headers': {
+                    'User-Agent': self.user_agents[0],
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Language': 'en-us,en;q=0.5',
+                }
+            }
+            
+            # Don't use cookies in fallback - use enhanced headers only
+            
+            fallback_ytdl = yt_dlp.YoutubeDL(fallback_options)
+            
+            # Try searching with minimal extraction
+            loop = asyncio.get_event_loop()
+            info = await loop.run_in_executor(
+                None,
+                lambda: fallback_ytdl.extract_info(f"ytsearch1:{query}", download=False)
+            )
+            
+            if info and 'entries' in info and info['entries']:
+                result = info['entries'][0]
+                if result and 'id' in result:
+                    # Construct basic info
+                    return {
+                        'title': result.get('title', query),
+                        'id': result['id'],
+                        'webpage_url': f"https://www.youtube.com/watch?v={result['id']}",
+                        'url': f"https://www.youtube.com/watch?v={result['id']}",  # Will be processed later
+                        'duration': result.get('duration', 0),
+                        'uploader': result.get('uploader', 'Unknown'),
+                    }
+            
+            return None
+            
+        except Exception as e:
+            print(f"Fallback search also failed: {e}")
+            return None
     
     async def get_audio_source(self, url: str) -> discord.AudioSource:
         """Get audio source without FFmpeg using direct streaming"""
