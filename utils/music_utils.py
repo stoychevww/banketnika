@@ -115,7 +115,7 @@ class YouTubeDownloader:
     
     def __init__(self):
         self.ytdl_format_options = {
-            'format': 'bestaudio/best',
+            'format': 'bestaudio[ext=webm]/bestaudio/best',
             'outtmpl': '%(extractor)s-%(id)s-%(title)s.%(ext)s',
             'restrictfilenames': True,
             'noplaylist': True,
@@ -124,9 +124,12 @@ class YouTubeDownloader:
             'logtostderr': False,
             'quiet': True,
             'no_warnings': True,
-            'default_search': 'auto',
+            'default_search': 'ytsearch',
             'source_address': '0.0.0.0',
             'extractflat': False,
+            'age_limit': 99,
+            'geo_bypass': True,
+            'cookiefile': None,
         }
         
         self.ffmpeg_options = {
@@ -151,14 +154,30 @@ class YouTubeDownloader:
             raise Exception(f"Error extracting info: {str(e)}")
     
     async def search_youtube(self, query: str) -> Optional[Dict[str, Any]]:
-        """Search YouTube for a query"""
+        """Search YouTube for a query or extract info from URL"""
         try:
-            info = await self.extract_info(f"ytsearch:{query}", download=False)
-            if info and 'entries' in info and len(info['entries']) > 0:
-                return info['entries'][0]
-            return None
+            # Check if it's a URL
+            if self._is_url(query):
+                # Direct URL - extract info directly
+                info = await self.extract_info(query, download=False)
+                return info
+            else:
+                # Search query - use ytsearch
+                info = await self.extract_info(f"ytsearch:{query}", download=False)
+                if info and 'entries' in info and len(info['entries']) > 0:
+                    return info['entries'][0]
+                return None
         except Exception as e:
             raise Exception(f"Search error: {str(e)}")
+    
+    def _is_url(self, query: str) -> bool:
+        """Check if the query is a URL"""
+        url_indicators = [
+            'http://', 'https://', 'www.',
+            'youtube.com', 'youtu.be', 'music.youtube.com',
+            'soundcloud.com', 'spotify.com'
+        ]
+        return any(indicator in query.lower() for indicator in url_indicators)
     
     def get_audio_source(self, url: str) -> discord.FFmpegPCMAudio:
         """Get audio source for discord.py"""

@@ -163,13 +163,14 @@ class Music(commands.Cog):
         search_msg = await ctx.send(embed=searching_embed)
         
         try:
-            # Search for the song
+            # Search for the song or extract URL info
             song_info = await self.downloader.search_youtube(query)
             
             if not song_info:
                 embed = MusicUtils.create_music_embed(
                     "❌ Не намерих",
-                    f"Не мога да намеря песен за: **{query}**",
+                    f"Не мога да намеря песен за: **{query}**\n"
+                    f"Моля проверете дали URL-то е валидно или опитайте с друга заявка.",
                     Config.COLOR_ERROR
                 )
                 await search_msg.edit(embed=embed)
@@ -213,9 +214,22 @@ class Music(commands.Cog):
                 await search_msg.edit(embed=embed)
         
         except Exception as e:
+            print(f"Error in play command: {str(e)}")  # Debug logging
+            error_msg = str(e)
+            
+            # Provide specific error messages for common issues
+            if "No video found" in error_msg:
+                error_msg = "Не намерих видео с това URL или заявка"
+            elif "Private video" in error_msg:
+                error_msg = "Видеото е частно и не може да бъде възпроизведено"
+            elif "Video unavailable" in error_msg:
+                error_msg = "Видеото не е налично в тази страна"
+            elif "age-restricted" in error_msg:
+                error_msg = "Видеото е с възрастови ограничения"
+            
             embed = MusicUtils.create_music_embed(
                 "❌ Грешка",
-                f"Възникна грешка: {str(e)}",
+                f"Възникна грешка: {error_msg}",
                 Config.COLOR_ERROR
             )
             await search_msg.edit(embed=embed)
