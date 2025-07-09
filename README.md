@@ -49,7 +49,7 @@ The "banket" (банкет) is a traditional Bulgarian celebratory feast where m
 
 1. **Clone the repository**
    ```bash
-   git clone https://github.com/yourusername/banketnika.git
+   git clone https://github.com/stoychevww/banketnika.git
    cd banketnika
    ```
 
